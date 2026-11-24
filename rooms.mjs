@@ -6,6 +6,7 @@ import {
   expire,
   finish,
   buildDictionary,
+  dictionaryFile,
   validTurnLimit,
 } from "./public/game.js";
 
@@ -14,14 +15,15 @@ const dictionaries = new Map();
 const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const ttl = 6 * 60 * 60 * 1000;
 
-async function dictionary(lang) {
-  if (!dictionaries.has(lang)) {
+async function dictionary(lang, topic) {
+  const key = topic + "/" + lang;
+  if (!dictionaries.has(key)) {
     const data = await readFile(
-      new URL("./public/data/" + lang + ".json", import.meta.url),
+      new URL("./public/data/" + dictionaryFile(lang, topic), import.meta.url),
     );
-    dictionaries.set(lang, buildDictionary(JSON.parse(data), lang));
+    dictionaries.set(key, buildDictionary(JSON.parse(data), lang, topic));
   }
-  return dictionaries.get(lang);
+  return dictionaries.get(key);
 }
 
 function json(res, status, value) {
@@ -53,6 +55,7 @@ function snapshot(room, seat) {
     seat,
     lang: room.lang,
     limit: room.limit,
+    topic: room.topic,
     game: room.game,
     serverNow: Date.now(),
   };
@@ -81,9 +84,11 @@ export async function roomApi(req, res, path) {
     }
   }
   if (!code) {
+    const topic = body.topic === undefined ? "cities" : body.topic;
+    if (!["cities", "countries"].includes(topic)) return fail(400, "invalid");
     if (!["ru", "en"].includes(body.lang) || !validTurnLimit(body.limit))
       return fail(400, "invalid");
-    await dictionary(body.lang);
+    await dictionary(body.lang, topic);
     let id;
     do {
       id = Array.from(
@@ -94,6 +99,7 @@ export async function roomApi(req, res, path) {
     const token = randomBytes(24).toString("hex");
     const room = {
       code: id,
+      topic,
       lang: body.lang,
       limit: body.limit,
       tokens: [token],
@@ -110,7 +116,7 @@ export async function roomApi(req, res, path) {
     const token = randomBytes(24).toString("hex");
     room.tokens.push(token);
     room.activeAt = Date.now();
-    room.game = startGame(room.lang, room.limit);
+    room.game = startGame(room.lang, room.limit, Date.now(), room.topic);
     return json(res, 200, { ...snapshot(room, 1), token });
   }
   const seat = room.tokens.indexOf(
@@ -132,7 +138,11 @@ export async function roomApi(req, res, path) {
       return fail(409, "notTurn");
     if (typeof body.city !== "string" || body.city.length > 150)
       return fail(400, "invalid");
-    const error = play(game, body.city, dictionaries.get(room.lang));
+    const error = play(
+      game,
+      body.city,
+      dictionaries.get(room.topic + "/" + room.lang),
+    );
     if (error) return fail(422, error);
   }
   json(res, 200, snapshot(room, seat));

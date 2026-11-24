@@ -34,12 +34,21 @@ export function lastLetter(name, lang) {
     .at(-1);
 }
 
-export function buildDictionary(rows, lang) {
+export function dictionaryFile(lang, topic) {
+  return topic === "countries" ? "countries.json" : lang + ".json";
+}
+
+export function buildDictionary(rows, lang, topic = "cities") {
   const lookup = new Map();
   const byLetter = new Map();
-  for (const row of rows) {
-    const names = Array.isArray(row) ? row : [row];
-    const id = normalize(names[0], lang);
+  const entries =
+    topic === "countries"
+      ? Object.entries(rows).map(([id, country]) => [id, country[lang]])
+      : rows.map((row) => {
+          const names = Array.isArray(row) ? row : [row];
+          return [normalize(names[0], lang), names];
+        });
+  for (const [id, names] of entries) {
     for (const name of names) {
       const key = normalize(name, lang);
       if (!key || lookup.has(key)) continue;
@@ -52,9 +61,10 @@ export function buildDictionary(rows, lang) {
   return { lookup, byLetter };
 }
 
-export function startGame(lang, limit = 0, now = Date.now()) {
+export function startGame(lang, limit = 0, now = Date.now(), topic = "cities") {
   if (!validTurnLimit(limit)) throw new RangeError("Invalid turn limit");
   return {
+    topic,
     lang,
     limit,
     turn: 0,
