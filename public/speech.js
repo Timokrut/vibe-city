@@ -8,32 +8,35 @@ export function createVoiceInput(Recognition) {
     const { recognition, feedback } = session;
     session = undefined;
     recognition.abort();
-    feedback('idle');
+    feedback("idle");
   }
 
   function toggle(lang, putText, feedback) {
     if (session) return cancel();
-    if (!Recognition) return feedback('unsupported');
+    if (!Recognition) return feedback("unsupported");
     let recognition;
     try {
       recognition = new Recognition();
-      recognition.lang = lang === 'ru' ? 'ru-RU' : 'en-US';
+      recognition.lang = lang === "ru" ? "ru-RU" : "en-US";
       recognition.continuous = false;
       recognition.interimResults = false;
       recognition.maxAlternatives = 1;
       session = { recognition, feedback };
-      let outcome = 'no-speech';
-      recognition.onresult = event => {
+      let outcome = "no-speech";
+      recognition.onresult = (event) => {
         if (session?.recognition !== recognition) return;
         const result = event.results[event.resultIndex]?.[0]?.transcript;
-        const city = result?.trim().replace(/[.,!?…]+$/u, '').trim();
+        const city = result
+          ?.trim()
+          .replace(/[.,!?…]+$/u, "")
+          .trim();
         if (city) {
-          outcome = 'review';
+          outcome = "review";
           putText(city);
           feedback(outcome);
         }
       };
-      recognition.onerror = event => {
+      recognition.onerror = (event) => {
         if (session?.recognition !== recognition) return;
         outcome = event.error;
         feedback(outcome);
@@ -43,13 +46,12 @@ export function createVoiceInput(Recognition) {
         session = undefined;
         feedback(outcome);
       };
-      feedback('listening');
+      feedback("listening");
       recognition.start();
     } catch {
       session = undefined;
-      feedback('unavailable');
+      feedback("unavailable");
     }
   }
   return { toggle, cancel };
 }
-
