@@ -4,6 +4,7 @@ import {
   validTurnLimit,
   startGame,
   buildDictionary,
+  dictionaryFile,
   play,
   choices,
   expire,
@@ -39,6 +40,7 @@ const dictionaries = new Map();
 const mapView = { zoom: false };
 const roomKey = "city-atlas-room-v1";
 let lang = localStorage.getItem("city-atlas-language") === "en" ? "en" : "ru";
+let topic = "cities";
 let mode = "local",
   timerChoice = 0,
   customSeconds = "90",
@@ -54,6 +56,8 @@ let busy = false,
   networkError = "",
   confirmation;
 const t = (ru, en) => (lang === "ru" ? ru : en);
+const placeText = (citiesRu, citiesEn, countriesRu, countriesEn) =>
+  topic === "countries" ? t(countriesRu, countriesEn) : t(citiesRu, citiesEn);
 const esc = (value) =>
   String(value).replace(
     /[&<>"']/g,
@@ -89,18 +93,32 @@ const myTurn = () =>
   game.winner === null &&
   (mode === "local" || game.turn === (room?.seat ?? 0));
 const messages = () => ({
-  empty: t("Введите название города.", "Enter a city name."),
+  empty: placeText(
+    "Введите название города.",
+    "Enter a city name.",
+    "Введите название страны.",
+    "Enter a country name.",
+  ),
   letter:
-    t("Нужен город на букву ", "Choose a city starting with ") +
+    placeText(
+      "Нужен город на букву ",
+      "Choose a city starting with ",
+      "Нужна страна на букву ",
+      "Choose a country starting with ",
+    ) +
     (game?.next || "").toUpperCase() +
     ".",
-  unknown: t(
+  unknown: placeText(
     "Этого города нет в словаре. Проверьте название или назовите другой город.",
     "City not found. Check the spelling or try another city.",
+    "Этой страны нет в словаре. Проверьте название или назовите другую страну.",
+    "Country not found. Check the spelling or try another country.",
   ),
-  repeat: t(
+  repeat: placeText(
     "Этот город уже был в цепочке.",
     "That city has already been played.",
+    "Эта страна уже была в цепочке.",
+    "That country has already been played.",
   ),
   ended: t("Партия окончена.", "The game has ended."),
   notTurn: t("Дождитесь своего хода.", "Wait for your turn."),
@@ -166,19 +184,26 @@ function header() {
   });
 }
 function hero() {
-  const sample =
+  const citySample =
     lang === "ru"
       ? ["Москв<b>а</b>", "<b>А</b>фи<b>н</b>ы", "<b>Н</b>еаполь"]
       : ["Pari<b>s</b>", "<b>S</b>eou<b>l</b>", "<b>L</b>ondon"];
 
+  const countrySample =
+    lang === "ru"
+      ? ["Канад<b>а</b>", "<b>А</b>нгол<b>а</b>", "<b>А</b>лжир"]
+      : ["Japa<b>n</b>", "<b>N</b>orwa<b>y</b>", "<b>Y</b>emen"];
+  const sample = topic === "countries" ? countrySample : citySample;
   return (
     '<section class="hero"><div class="hero-copy"><div class="caption">' +
     icon("route", 16) +
     t("Игра на последнюю букву", "The last-letter game") +
     "</div><h1>Atlas</h1><p>" +
-    t(
+    placeText(
       "Назовите город на последнюю букву предыдущего. Как далеко вы доберётесь?",
       "Name a city starting with the last letter of the previous city. How far can you go?",
+      "Назовите страну на последнюю букву предыдущей. Сколько стран появится на вашей карте?",
+      "Name a country starting with the last letter of the previous one. How many can you put on the map?",
     ) +
     '</p><div class="hero-route">' +
     sample.map((name) => "<span>" + name + "</span>").join(icon("arrow", 14)) +
@@ -187,6 +212,12 @@ function hero() {
 }
 function lobby() {
   const join = mode === "online" && networkTab === "join";
+  const topics = ["cities", "countries"]
+    .map(
+      (key) =>
+        `<button type="button" data-topic="${key}" aria-pressed="${topic === key}">${icon(key === "cities" ? "pin" : "online", 16)}${key === "cities" ? t("Города", "Cities") : t("Страны", "Countries")}</button>`,
+    )
+    .join("");
   const cards = Object.entries(modes())
     .map(
       ([key, [name, desc]]) =>
@@ -264,9 +295,9 @@ function lobby() {
     <div class="timer-opts">${timerOptions}</div>${customField}</div>`;
   main.innerHTML =
     hero() +
-    '<section class="setup"><h2 class="section-title">' +
+    `<section class="setup"><div class="setup-heading"><h2 class="section-title">` +
     t("Режим игры", "Game mode") +
-    '</h2><div class="cards">' +
+    `</h2><div class="topic-switch" role="group" aria-label="${t("Тема игры", "Game topic")}">${topics}</div></div><div class="cards">` +
     cards +
     "</div>" +
     network +
@@ -287,6 +318,8 @@ function topLine() {
     t("В меню", "Menu") +
     '</button><span class="mode-label">' +
     icon(mode, 17) +
+    placeText("Города", "Cities", "Страны", "Countries") +
+    " · " +
     modes()[mode][0] +
     "</span></div>"
   );
@@ -331,9 +364,11 @@ function board() {
     .join("");
   const why = {
     timeout: t("Время на ход истекло.", "Time ran out."),
-    exhausted: t(
+    exhausted: placeText(
       "В словаре закончились подходящие города.",
       "No matching cities remain in the dictionary.",
+      "В словаре закончились подходящие страны.",
+      "No matching countries remain in the dictionary.",
     ),
     left: t("Соперник вышел из комнаты.", "Your opponent left the room."),
     surrender: t("Один из игроков сдался.", "A player conceded."),
@@ -341,21 +376,51 @@ function board() {
   const heading = done
     ? t("Победа", "Winner") + " · " + player(game.winner)
     : last
-      ? t("Город на «", "City starting with “") +
+      ? placeText(
+          "Город на «",
+          "City starting with “",
+          "Страна на «",
+          "Country starting with “",
+        ) +
         esc(game.next.toUpperCase()) +
         t("»", "”")
-      : t("Назовите первый город", "Name the first city");
+      : placeText(
+          "Назовите первый город",
+          "Name the first city",
+          "Назовите первую страну",
+          "Name the first country",
+        );
   const info = done
     ? why[game.reason]
     : last
-      ? t("Предыдущий город — ", "Previous city — ") + esc(last.name)
-      : t("Подойдёт город на любую букву.", "Start with any city.");
+      ? placeText(
+          "Предыдущий город — ",
+          "Previous city — ",
+          "Предыдущая страна — ",
+          "Previous country — ",
+        ) + esc(last.name)
+      : placeText(
+          "Подойдёт город на любую букву.",
+          "Start with any city.",
+          "Подойдёт страна на любую букву.",
+          "Start with any country.",
+        );
   const disabled = myTurn() ? "" : " disabled";
   const form =
     '<form class="field" id="move"><input id="city" maxlength="150" aria-label="' +
-    t("Название города", "City name") +
+    placeText(
+      "Название города",
+      "City name",
+      "Название страны",
+      "Country name",
+    ) +
     '" placeholder="' +
-    t("Название города", "City name") +
+    placeText(
+      "Название города",
+      "City name",
+      "Название страны",
+      "Country name",
+    ) +
     '" autocomplete="off" enterkeyhint="send"' +
     disabled +
     '><button class="icon-btn" id="mic" type="button" aria-pressed="false" title="' +
@@ -369,7 +434,7 @@ function board() {
     '</button><button class="primary"' +
     disabled +
     ">" +
-    t("Ответить", "Play city") +
+    placeText("Ответить", "Play city", "Ответить", "Play country") +
     icon("arrow", 17) +
     '</button></form><p class="voice-status" id="voice-status" role="status"></p>';
   main.innerHTML =
@@ -401,7 +466,12 @@ function board() {
     (!done && !myTurn()
       ? '<p class="sub">' +
         (mode === "bot"
-          ? t("Бот выбирает город…", "The bot is choosing a city…")
+          ? placeText(
+              "Бот выбирает город…",
+              "The bot is choosing a city…",
+              "Бот выбирает страну…",
+              "The bot is choosing a country…",
+            )
           : t("Ожидаем ход соперника…", "Waiting for your opponent…")) +
         "</p>"
       : "") +
@@ -417,7 +487,12 @@ function board() {
     '</div><section class="round-map" id="round-map"></section>' +
     (last
       ? '<h2 class="history-title">' +
-        t("Цепочка городов", "City chain") +
+        placeText(
+          "Цепочка городов",
+          "City chain",
+          "Цепочка стран",
+          "Country chain",
+        ) +
         '</h2><ol class="history" reversed>' +
         game.history
           .slice()
@@ -488,6 +563,7 @@ function sync(data) {
     seat: data.seat,
   };
   game = data.game;
+  topic = data.topic ?? game?.topic ?? "cities";
   mode = "online";
   sessionStorage.setItem(roomKey, JSON.stringify(room));
   if (changed || !$("#exit")) draw();
@@ -542,21 +618,24 @@ async function begin() {
       const data =
         networkTab === "join"
           ? await api("/" + typedCode + "/join", {})
-          : await api("", { lang, limit });
+          : await api("", { lang, limit, topic });
       lang = data.lang;
       sync(data);
     } else {
       const chosenLang = lang;
-      if (!dictionaries.has(chosenLang)) {
-        const response = await fetch("/data/" + chosenLang + ".json");
+      const key = topic + "/" + chosenLang;
+      if (!dictionaries.has(key)) {
+        const response = await fetch(
+          "/data/" + dictionaryFile(chosenLang, topic),
+        );
         if (!response.ok) throw new Error("connection");
         dictionaries.set(
-          chosenLang,
-          buildDictionary(await response.json(), chosenLang),
+          key,
+          buildDictionary(await response.json(), chosenLang, topic),
         );
       }
-      dictionary = dictionaries.get(chosenLang);
-      game = startGame(chosenLang, limit);
+      dictionary = dictionaries.get(key);
+      game = startGame(chosenLang, limit, Date.now(), topic);
       draw();
       $("#city")?.focus();
     }
@@ -626,35 +705,50 @@ function updateVoiceStatus(state) {
   if (!button || !status) return;
   const descriptions = {
     idle: "",
-    ready: t("Назовите следующий город.", "Say the next city."),
-    listening: t(
+    ready: placeText(
+      "Назовите следующий город.",
+      "Say the next city.",
+      "Назовите следующую страну.",
+      "Say the next country.",
+    ),
+    listening: placeText(
       "Слушаю. Назовите город — ход отправится автоматически.",
       "Listening. Say a city to play it automatically.",
+      "Слушаю. Назовите страну — ход отправится автоматически.",
+      "Listening. Say a country to play it automatically.",
     ),
     paused: t("Голосовой режим на паузе.", "Voice input paused."),
-    unsupported: t(
+    unsupported: placeText(
       "В этом браузере голосовой ввод недоступен. Введите город с клавиатуры.",
       "Voice input is unavailable in this browser. Type your city.",
+      "В этом браузере голосовой ввод недоступен. Введите страну с клавиатуры.",
+      "Voice input is unavailable in this browser. Type your country.",
     ),
     "not-allowed": t(
       "Разрешите доступ к микрофону в настройках сайта. Для игры по сети используйте HTTPS.",
       "Allow microphone access in site settings. Use HTTPS when playing over a network.",
     ),
-    "no-speech": t(
+    "no-speech": placeText(
       "Не удалось расслышать город. Попробуйте ещё раз.",
       "No city heard. Try again.",
+      "Не удалось расслышать страну. Попробуйте ещё раз.",
+      "No country heard. Try again.",
     ),
     "audio-capture": t(
       "Микрофон недоступен. Проверьте подключение.",
       "Microphone unavailable. Check your microphone.",
     ),
-    network: t(
+    network: placeText(
       "Сервис распознавания недоступен. Проверьте подключение или введите город.",
       "Speech service unavailable. Check your connection or type your city.",
+      "Сервис распознавания недоступен. Проверьте подключение или введите страну.",
+      "Speech service unavailable. Check your connection or type your country.",
     ),
-    unavailable: t(
+    unavailable: placeText(
       "Не удалось запустить распознавание. Введите город с клавиатуры.",
       "Could not start recognition. Type your city instead.",
+      "Не удалось запустить распознавание. Введите страну с клавиатуры.",
+      "Could not start recognition. Type your country instead.",
     ),
   };
   status.textContent = descriptions[state] ?? descriptions.unavailable;
@@ -683,21 +777,29 @@ function dialog(title, content, action) {
 }
 function rules() {
   const entries = [
-    t(
+    placeText(
       "Первый игрок называет любой город. Следующий называет город на последнюю букву предыдущего.",
       "The first player names any city. The next player names a city starting with its last letter.",
+      "Первый игрок называет любую страну. Следующий называет страну на последнюю букву предыдущей.",
+      "The first player names any country. The next player names a country starting with its last letter.",
     ),
-    t(
+    placeText(
       "Города должны быть в словаре выбранного языка. Повторять город, в том числе под другим названием, нельзя.",
       "Use cities from the selected language’s dictionary. Each city can be used once, including its alternate names.",
+      "В словаре 195 стран. Можно использовать известные варианты названий, но каждую страну можно назвать только один раз.",
+      "The dictionary contains 195 countries. Common alternative names are accepted. Each country can be played once.",
     ),
-    t(
+    placeText(
       "В русском языке пропускаем конечные ь, ъ и ы. Например, после Перми нужен город на М. Ё и Е считаются одной буквой.",
       "In Russian, skip final ь, ъ and ы. Ё and Е count as the same letter.",
+      "В русском языке пропускаем конечные ь, ъ и ы. Например, после Беларуси («Беларусь») нужна страна на С. Ё и Е считаются одной буквой.",
+      "In Russian, skip final ь, ъ and ы. Ё and Е count as the same letter.",
     ),
-    t(
+    placeText(
       "Игрок проигрывает, если сдаётся, исчерпывает время или в словаре не осталось подходящего ответа.",
       "A player loses by conceding, running out of time, or having no matching city left in the dictionary.",
+      "Игрок проигрывает, если сдаётся, исчерпывает время или в словаре не осталось подходящей страны.",
+      "A player loses by conceding, running out of time, or having no matching country left in the dictionary.",
     ),
   ];
   dialog(
@@ -785,6 +887,10 @@ document.addEventListener("click", async (event) => {
   if (b.dataset.lang) {
     lang = b.dataset.lang;
     localStorage.setItem("city-atlas-language", lang);
+    draw();
+  }
+  if (b.dataset.topic) {
+    topic = b.dataset.topic;
     draw();
   }
   if (b.dataset.mode) {

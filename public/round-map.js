@@ -4,20 +4,20 @@ const worldWidth = 720;
 const worldHeight = 320;
 const coordinateFiles = new Map();
 
-function loadCoordinates(lang) {
-  if (!coordinateFiles.has(lang)) {
-    const request = fetch("/data/" + lang + "-coordinates.json")
+function loadCoordinates(file) {
+  if (!coordinateFiles.has(file)) {
+    const request = fetch("/data/" + file + ".json")
       .then((response) => {
         if (!response.ok) throw new Error("Missing coordinates");
         return response.json();
       })
       .catch((error) => {
-        coordinateFiles.delete(lang);
+        coordinateFiles.delete(file);
         throw error;
       });
-    coordinateFiles.set(lang, request);
+    coordinateFiles.set(file, request);
   }
-  return coordinateFiles.get(lang);
+  return coordinateFiles.get(file);
 }
 
 function project([longitude, latitude]) {
@@ -98,6 +98,7 @@ function formatCoordinate(value, positive, negative, lang) {
 export async function showRoundMap(container, game, { t, player, lang, view }) {
   const title = t("Карта партии", "Round map");
   const history = game.history;
+  const countries = game.topic === "countries";
   container.innerHTML = `<div class="map-heading"><h2>${title}</h2>
     <button type="button" class="map-zoom" disabled></button></div>
     <svg class="round-chart" viewBox="0 0 720 320" role="group" aria-label="${title}" preserveAspectRatio="xMidYMid meet"></svg>
@@ -120,10 +121,15 @@ export async function showRoundMap(container, game, { t, player, lang, view }) {
     svg.querySelector(".map-tag")?.remove();
     const point = points[index];
     if (!point) {
-      caption.textContent = t(
-        "Здесь появится первый названный город.",
-        "The first city you play will appear here.",
-      );
+      caption.textContent = countries
+        ? t(
+            "Здесь появится первая названная страна.",
+            "The first country you play will appear here.",
+          )
+        : t(
+            "Здесь появится первый названный город.",
+            "The first city you play will appear here.",
+          );
       return;
     }
     labelPoint(point);
@@ -133,6 +139,11 @@ export async function showRoundMap(container, game, { t, player, lang, view }) {
     ordinal.className = "map-ordinal player-" + point.player;
     ordinal.textContent = point.turn;
     caption.replaceChildren(ordinal, city, " · " + player(point.player));
+    if (countries) {
+      coordinatesLabel.textContent =
+        t("Стран на карте: ", "Countries on map: ") + points.length + " / 195";
+      return;
+    }
     const [lon, lat] = point.coords;
     coordinatesLabel.textContent = [
       formatCoordinate(lat, t("с. ш.", "N"), t("ю. ш.", "S"), lang),
@@ -165,8 +176,52 @@ export async function showRoundMap(container, game, { t, player, lang, view }) {
     tag.prepend(svgElement("rect", { width, height: 20, rx: 5 }));
   }
 
+  function drawCountry(point, index, center, scale) {
+    const shape = svgElement("g", {
+      class: "map-country player-" + point.player,
+      "data-point": index,
+      role: "button",
+      tabindex: 0,
+      "aria-label":
+        point.turn + ". " + point.name + " · " + player(point.player),
+    });
+    const title = svgElement("title", {});
+    title.textContent = point.name;
+    shape.append(title);
+    for (const x of [-720, 0, 720])
+      shape.append(
+        svgElement("use", {
+          href: "/assets/country-borders.svg#" + point.id,
+          x,
+        }),
+      );
+    if (point.tiny) {
+      const inset = svgElement("g", {
+        transform: `translate(${nearestCopy(point.x, center)} ${point.y}) scale(${scale})`,
+      });
+      inset.append(
+        svgElement("circle", { r: 10, fill: "transparent", stroke: "none" }),
+        svgElement("circle", { r: 3, class: "map-pin" }),
+      );
+      shape.append(inset);
+    }
+    svg.append(shape);
+  }
+
   function paint() {
-    const frame = frameCities(points, view.zoom);
+    const extent = countries
+      ? points.flatMap((point) => {
+          const [west, south, east, north] = point.bounds;
+          // Interior samples keep wide countries on the correct side of the date line.
+          return [
+            point,
+            project([west, south]),
+            project([east, north]),
+            project([(west + east) / 2, north]),
+          ];
+        })
+      : points;
+    const frame = frameCities(extent, view.zoom);
     const center = frame.left + frame.width / 2;
     svg.setAttribute(
       "viewBox",
@@ -178,16 +233,28 @@ export async function showRoundMap(container, game, { t, player, lang, view }) {
       <g class="map-land" aria-hidden="true">
         <use href="/assets/world-land.svg#land" x="-720"/><use href="/assets/world-land.svg#land"/><use href="/assets/world-land.svg#land" x="720"/>
       </g><rect x="-720" width="2160" height="320" fill="url(#meridians)" aria-hidden="true"/>`;
-    svg.append(
-      svgElement("path", {
-        d: routeLines(points, center),
-        class: "map-thread",
-        "vector-effect": "non-scaling-stroke",
+    if (countries) {
+      const borders = svgElement("g", {
+        class: "map-borders",
         "aria-hidden": "true",
-      }),
-    );
+      });
+      for (const x of [-720, 0, 720])
+        borders.append(
+          svgElement("use", { href: "/assets/country-borders.svg#borders", x }),
+        );
+      svg.append(borders);
+    } else
+      svg.append(
+        svgElement("path", {
+          d: routeLines(points, center),
+          class: "map-thread",
+          "vector-effect": "non-scaling-stroke",
+          "aria-hidden": "true",
+        }),
+      );
     const scale = frame.width / worldWidth;
     points.forEach((point, index) => {
+      if (countries) return drawCountry(point, index, center, scale);
       const button = svgElement("g", {
         transform: `translate(${nearestCopy(point.x, center)} ${point.y}) scale(${scale})`,
         class: "map-dot player-" + point.player,
@@ -210,7 +277,11 @@ export async function showRoundMap(container, game, { t, player, lang, view }) {
     zoomButton.disabled = points.length === 0;
     zoomButton.innerHTML =
       icon(view.zoom ? "online" : "pin", 16) +
-      (view.zoom ? t("Весь мир", "World view") : t("К городам", "Fit cities"));
+      (view.zoom
+        ? t("Весь мир", "World view")
+        : countries
+          ? t("К странам", "Fit countries")
+          : t("К городам", "Fit cities"));
     select(selected);
   }
   zoomButton.onclick = () => {
@@ -233,12 +304,21 @@ export async function showRoundMap(container, game, { t, player, lang, view }) {
   paint();
   if (!history.length) return;
   try {
-    const catalog = await loadCoordinates(game.lang);
+    const catalog = await loadCoordinates(
+      countries ? "country-map" : game.lang + "-coordinates",
+    );
     // A turn, language switch, or new game may have replaced this chart while loading.
     if (!container.isConnected) return;
     points = history.map((move, index) => {
-      const coords = catalog[move.id];
-      return { ...move, coords, turn: index + 1, ...project(coords) };
+      const location = countries
+        ? catalog[move.id]
+        : { coords: catalog[move.id] };
+      return {
+        ...move,
+        ...location,
+        turn: index + 1,
+        ...project(location.coords),
+      };
     });
     selected = points.length - 1;
     paint();

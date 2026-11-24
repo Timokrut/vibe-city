@@ -1097,3 +1097,55 @@ input {
     system-ui,
     sans-serif;
 }
+.setup-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 15px;
+}
+.setup-heading .section-title {
+  margin: 0;
+}
+.topic-switch {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 3px;
+  background: var(--cream);
+}
+.topic-switch button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 13px;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+}
+.topic-switch button[aria-pressed="true"] {
+  background: var(--green);
+  color: var(--paper);
+}
+.map-borders {
+  fill: var(--land);
+  stroke: var(--coast);
+  stroke-width: 0.65px;
+  pointer-events: none;
+}
+.map-country {
+  fill: var(--marker);
+  stroke: var(--pin-border);
+  stroke-width: 0.9px;
+  cursor: pointer;
+}
+.map-country:focus-visible,
+.map-country:hover,
+.map-country[aria-pressed="true"] {
+  stroke: var(--ink);
+  stroke-width: 1.6px;
+  outline: none;
+}
