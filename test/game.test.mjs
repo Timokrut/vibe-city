@@ -60,3 +60,12 @@ test("English names also accept Latin letters with no decomposed ASCII base", ()
   assert.equal(dict.lookup.get("lodz").name, "Łódź");
   assert.equal(lastLetter("Tromsø", "en"), "o");
 });
+
+test("custom turn durations cover whole seconds from 1 to 1200", () => {
+  for (const limit of [1, 73, 1200]) {
+    assert.equal(startGame("en", limit, 100).deadline, 100 + limit * 1000);
+  }
+  for (const limit of [-1, 0.5, 1201, NaN, "45"]) {
+    assert.throws(() => startGame("en", limit), RangeError);
+  }
+});

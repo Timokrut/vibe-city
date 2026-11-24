@@ -6,7 +6,7 @@ import {
   expire,
   finish,
   buildDictionary,
-  limits,
+  validTurnLimit,
 } from "./public/game.js";
 
 const rooms = new Map();
@@ -81,7 +81,7 @@ export async function roomApi(req, res, path) {
     }
   }
   if (!code) {
-    if (!["ru", "en"].includes(body.lang) || !limits.includes(body.limit))
+    if (!["ru", "en"].includes(body.lang) || !validTurnLimit(body.limit))
       return fail(400, "invalid");
     await dictionary(body.lang);
     let id;

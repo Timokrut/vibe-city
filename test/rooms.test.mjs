@@ -21,12 +21,16 @@ test("two clients join, resume, alternate turns and see the same outcome", async
     });
     return { status: response.status, data: await response.json() };
   }
-  const { data: host } = await request("", { lang: "ru", limit: 60 });
+  for (const limit of [1201, -1, 1.5, "60", null]) {
+    assert.equal((await request("", { lang: "ru", limit })).status, 400);
+  }
+  const { data: host } = await request("", { lang: "ru", limit: 1200 });
   const path = "/" + host.code;
   assert.equal(host.game, null);
   assert.equal((await request(path)).status, 403);
   const { data: guest } = await request(path + "/join", {});
   assert.equal(guest.seat, 1);
+  assert.equal(guest.game.limit, 1200);
   assert.notEqual(host.token, guest.token);
   assert.equal((await request(path + "/join", {})).status, 409);
   const wrongSeat = await request(

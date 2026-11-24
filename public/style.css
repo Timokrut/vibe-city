@@ -411,6 +411,27 @@ main {
   justify-content: space-between;
   gap: 14px;
 }
+.timer-panel {
+  flex-wrap: wrap;
+}
+.custom-timer {
+  flex: 1 0 100%;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  font-size: 14px;
+}
+.custom-timer input {
+  width: 86px;
+  font-variant-numeric: tabular-nums;
+}
+.custom-timer input[aria-invalid="true"] {
+  border-color: currentColor;
+  outline: 2px solid var(--coral);
+}
 .timer-title {
   gap: 12px;
   font-size: 16px;
@@ -854,7 +875,7 @@ input {
   .timer-opts {
     width: 100%;
     display: grid;
-    grid-template-columns: 1.5fr repeat(4, 1fr);
+    grid-template-columns: repeat(3, 1fr);
     gap: 2px;
   }
   .timer-opts .chip {

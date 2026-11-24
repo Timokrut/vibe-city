@@ -1,5 +1,7 @@
 import {
   limits,
+  maxTurnSeconds,
+  validTurnLimit,
   startGame,
   buildDictionary,
   play,
@@ -21,7 +23,8 @@ const dictionaries = new Map();
 const roomKey = "city-atlas-room-v1";
 let lang = localStorage.getItem("city-atlas-language") === "en" ? "en" : "ru";
 let mode = "local",
-  limit = 0,
+  timerChoice = 0,
+  customSeconds = "90",
   networkTab = "create",
   typedCode = "";
 let game = null,
@@ -84,6 +87,10 @@ const messages = () => ({
   ),
   ended: t("Партия окончена.", "The game has ended."),
   notTurn: t("Дождитесь своего хода.", "Wait for your turn."),
+  timerRange: t(
+    "Введите целое число от 1 до 1200 секунд.",
+    "Enter a whole number from 1 to 1200 seconds.",
+  ),
   invalid: t("Проверьте введённые данные.", "Check your entry."),
   missing: t(
     "Комната не найдена. Проверьте код.",
@@ -214,26 +221,30 @@ function lobby() {
         : "") +
       "</div>";
   }
-  const timer =
-    '<div class="timer-panel"><div class="timer-title">' +
-    icon("clock", 21) +
-    t("Время на ход", "Turn timer") +
-    '</div><div class="timer-opts">' +
-    limits
-      .map(
-        (s) =>
-          '<button data-time="' +
-          s +
-          '" class="chip ' +
-          (s === limit ? "on" : "") +
-          '" aria-pressed="' +
-          (s === limit) +
-          '">' +
-          (s ? s + t(" сек", " sec") : t("Без лимита", "No limit")) +
-          "</button>",
-      )
-      .join("") +
-    "</div></div>";
+  const timerOptions = [...limits, "custom"]
+    .map((value) => {
+      const selected = timerChoice === value;
+      const label =
+        value === "custom"
+          ? t("Свой лимит", "Custom")
+          : value === 0
+            ? t("Без лимита", "No limit")
+            : value + t(" сек", " sec");
+      return `<button data-time="${value}" class="chip ${selected ? "on" : ""}" aria-pressed="${selected}">${label}</button>`;
+    })
+    .join("");
+  const customField =
+    timerChoice === "custom"
+      ? `
+    <div class="custom-timer">
+      <label for="seconds">${t("Секунд на ход", "Seconds per turn")}</label>
+      <input id="seconds" type="number" min="1" max="${maxTurnSeconds}" step="1" required inputmode="numeric" aria-describedby="timer-hint" value="${esc(customSeconds)}">
+      <span id="timer-hint" class="sub">${t("До 20 минут", "Up to 20 minutes")}</span>
+    </div>`
+      : "";
+  const timer = `<div class="timer-panel">
+    <div class="timer-title">${icon("clock", 21)}${t("Время на ход", "Turn timer")}</div>
+    <div class="timer-opts">${timerOptions}</div>${customField}</div>`;
   main.innerHTML =
     hero() +
     '<section class="setup"><h2 class="section-title">' +
@@ -491,6 +502,16 @@ async function poll() {
 }
 async function begin() {
   if (busy) return;
+  const limit = timerChoice === "custom" ? Number(customSeconds) : timerChoice;
+  const customInput = $("#seconds");
+  if (
+    customInput &&
+    (!validTurnLimit(limit) || limit === 0 || !customInput.validity.valid)
+  ) {
+    customInput.setAttribute("aria-invalid", "true");
+    customInput.focus();
+    return notify("timerRange");
+  }
   busy = true;
   $("#start").disabled = true;
   networkError = "";
@@ -750,8 +771,10 @@ document.addEventListener("click", async (event) => {
     draw();
   }
   if (b.dataset.time) {
-    limit = Number(b.dataset.time);
+    timerChoice =
+      b.dataset.time === "custom" ? "custom" : Number(b.dataset.time);
     draw();
+    if (timerChoice === "custom") $("#seconds").select();
   }
   if (b.dataset.net) {
     networkTab = b.dataset.net;
@@ -776,6 +799,11 @@ document.addEventListener("click", async (event) => {
   }
 });
 main.addEventListener("input", (e) => {
+  if (e.target.id === "seconds") {
+    customSeconds = e.target.value;
+    e.target.removeAttribute("aria-invalid");
+    notify("");
+  }
   if (e.target.id === "room-code") {
     typedCode = e.target.value.trim().toUpperCase();
     e.target.value = typedCode;

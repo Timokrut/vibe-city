@@ -1,4 +1,8 @@
 export const limits = [0, 15, 30, 60, 120];
+export const maxTurnSeconds = 1200;
+export function validTurnLimit(seconds) {
+  return Number.isInteger(seconds) && seconds >= 0 && seconds <= maxTurnSeconds;
+}
 
 // These Latin letters do not decompose into an ASCII letter plus a mark.
 const latin = {
@@ -49,6 +53,7 @@ export function buildDictionary(rows, lang) {
 }
 
 export function startGame(lang, limit = 0, now = Date.now()) {
+  if (!validTurnLimit(limit)) throw new RangeError("Invalid turn limit");
   return {
     lang,
     limit,
