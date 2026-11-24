@@ -80,9 +80,9 @@ export async function roomApi(req, res, path) {
   room.activeAt = Date.now();
   if (room.game) expire(room.game);
   if (action === 'leave') {
-    if (room.game) finish(room.game, 1 - seat, 'left');
+    if (room.game) finish(room.game, 1 - seat, body.concede ? 'surrender' : 'left');
     else rooms.delete(code);
-    return json(res, 200, { ok: true });
+    return json(res, 200, { ok: true, game: room.game });
   }
   if (action === 'move') {
     const game = room.game;

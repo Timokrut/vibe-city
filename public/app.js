@@ -1,5 +1,8 @@
 import { limits, startGame, buildDictionary, play, choices, expire, finish } from './game.js';
 import { icon } from './icons.js';
+import { createVoiceInput } from './speech.js';
+
+const voice = createVoiceInput(window.SpeechRecognition || window.webkitSpeechRecognition);
 
 const $ = selector => document.querySelector(selector);
 const main = $('#main');
@@ -48,8 +51,8 @@ function header() {
   });
 }
 function hero() {
-  const sample = lang === 'ru' ? ['Москв<b>а</b>', '<b>А</b>фин<b>ы</b>', '<b>Н</b>еаполь'] : ['Pari<b>s</b>', '<b>S</b>eou<b>l</b>', '<b>L</b>ondon'];
-  if (lang === 'ru') sample[1] = '<b>А</b>фи<b>н</b>ы';
+  const sample = lang === 'ru' ? ['Москв<b>а</b>', '<b>А</b>фи<b>н</b>ы', '<b>Н</b>еаполь'] : ['Pari<b>s</b>', '<b>S</b>eou<b>l</b>', '<b>L</b>ondon'];
+  
   return '<section class="hero"><div class="hero-copy"><div class="caption">'+icon('route',16)+t('Игра на последнюю букву','The last-letter game')+'</div><h1>'+t('Города <em>мира</em>','Cities of the <em>world</em>')+'</h1><p>'+t('Назовите город на последнюю букву предыдущего. Как далеко вы доберётесь?','Name a city starting with the last letter of the previous city. How far can you go?')+'</p><div class="hero-route">'+sample.map(name=>'<span>'+name+'</span>').join(icon('arrow',14))+'</div></div></section>';
 }
 function lobby() {
@@ -79,7 +82,7 @@ function board() {
   const heading = done ? t('Победа','Winner')+' · '+player(game.winner) : last ? t('Город на «','City starting with “')+esc(game.next.toUpperCase())+t('»','”') : t('Назовите первый город','Name the first city');
   const info = done ? why[game.reason] : last ? t('Предыдущий город — ','Previous city — ')+esc(last.name) : t('Подойдёт город на любую букву.','Start with any city.');
   const disabled = myTurn() ? '' : ' disabled';
-  const form = '<form class="field" id="move"><input id="city" maxlength="150" aria-label="'+t('Название города','City name')+'" placeholder="'+t('Название города','City name')+'" autocomplete="off" enterkeyhint="send"'+disabled+'><button class="primary"'+disabled+'>'+t('Ответить','Play city')+icon('arrow',17)+'</button></form>';
+  const form = '<form class="field" id="move"><input id="city" maxlength="150" aria-label="'+t('Название города','City name')+'" placeholder="'+t('Название города','City name')+'" autocomplete="off" enterkeyhint="send"'+disabled+'><button class="icon-btn" id="mic" type="button" aria-pressed="false" title="'+t('Назвать город голосом','Dictate a city')+'" aria-label="'+t('Назвать город голосом','Dictate a city')+'"'+disabled+'>'+icon('mic')+'</button><button class="primary"'+disabled+'>'+t('Ответить','Play city')+icon('arrow',17)+'</button></form><p class="voice-status" id="voice-status" role="status"></p>';
   main.innerHTML = '<div class="game-wrap">'+topLine()+'<section class="panel"><div class="players">'+players+'</div><div class="turn-title"><span class="caption">'+icon(done?'flag':'route',16)+(done?t('Итог игры','Game over'):t('Ход','Turn')+' '+(game.history.length+1)+' · '+player(game.turn))+'</span><span class="time" id="time"></span></div><h1>'+heading+'</h1><p class="sub">'+info+'</p>'+(done?'<button class="primary" id="again">'+t('Новая игра','New game')+icon('arrow',18)+'</button>':form)+
     '<p class="notice" id="notice" role="status"></p>'+(!done&&!myTurn()?'<p class="sub">'+(mode==='bot'?t('Бот выбирает город…','The bot is choosing a city…'):t('Ожидаем ход соперника…','Waiting for your opponent…'))+'</p>':'')+'</section><div class="game-actions"><span class="sub">'+(room?t('Комната ','Room ')+esc(room.code)+' · ':'')+(game.lang==='ru'?'Русский':'English')+'</span>'+(!done?'<button id="concede" class="link-btn">'+t('Сдаться','Concede')+'</button>':'')+'</div>'+
     (last?'<h2 class="history-title">'+t('Цепочка городов','City chain')+'</h2><ol class="history" reversed>'+game.history.slice().reverse().map((h,i)=>'<li><span>'+String(game.history.length-i).padStart(2,'0')+'</span><strong>'+esc(h.name)+'</strong><span>'+player(h.player)+'</span></li>').join('')+'</ol>':'')+'</div>';
@@ -87,6 +90,7 @@ function board() {
   if (networkError) notify(networkError);
 }
 function draw() {
+  voice.cancel();
   header();
   if (game) board();
   else if (room) waiting();
@@ -179,6 +183,7 @@ function scheduleBot() {
 async function submit(event) {
   event.preventDefault();
   if (!myTurn() || busy) return;
+  voice.cancel();
   const input = $('#city');
   const city = input.value.trim();
   if (!city) return notify('empty');
@@ -195,7 +200,30 @@ async function submit(event) {
   scheduleBot();
   if (myTurn()) $('#city')?.focus();
 }
+function dictate() {
+  const input = $('#city'), button = $('#mic'), status = $('#voice-status');
+  const descriptions = {
+    idle: '',
+    listening: t('Слушаю… Назовите город.', 'Listening… Say a city name.'),
+    review: t('Проверьте название и нажмите «Ответить».', 'Check the name, then press Play city.'),
+    unsupported: t('В этом браузере голосовой ввод недоступен. Введите город с клавиатуры.', 'Voice input is unavailable in this browser. Type your city.'),
+    'not-allowed': t('Разрешите доступ к микрофону в настройках сайта. Для игры по сети используйте HTTPS.', 'Allow microphone access in site settings. Use HTTPS when playing over a network.'),
+    'no-speech': t('Не удалось расслышать город. Попробуйте ещё раз.', 'No city heard. Try again.'),
+    'audio-capture': t('Микрофон недоступен. Проверьте подключение.', 'Microphone unavailable. Check your microphone.'),
+    network: t('Сервис распознавания недоступен. Проверьте подключение или введите город.', 'Speech service unavailable. Check your connection or type your city.'),
+    unavailable: t('Не удалось запустить распознавание. Введите город с клавиатуры.', 'Could not start recognition. Type your city instead.')
+  };
+  voice.toggle(game.lang, city => {
+    if (myTurn() && input.isConnected) { input.value = city; input.focus(); }
+  }, state => {
+    status.textContent = descriptions[state] ?? descriptions.unavailable;
+    button.classList.toggle('active-mic', state === 'listening');
+    button.setAttribute('aria-pressed', String(state === 'listening'));
+  });
+}
+
 function dialog(title, content, action) {
+  voice.cancel();
   confirmation = action;
   $('#dialog-content').innerHTML = '<div class="dialog-head"><h2 id="dialog-title">'+title+'</h2><button class="icon-btn" data-close aria-label="'+t('Закрыть','Close')+'">'+icon('close',18)+'</button></div>'+content;
   modal.setAttribute('aria-labelledby','dialog-title');
@@ -223,8 +251,8 @@ async function leave(concede) {
   if (room) {
     busy=true;
     try {
-      await api('/'+room.code+'/leave',{},room.token);
-      if (concede && game) { finish(game,1-room.seat,'surrender'); draw(); }
+      const result = await api('/'+room.code+'/leave',{concede},room.token);
+      if (concede && game) { game = result.game; draw(); }
       else reset();
     } catch (error) {
       if (['access','missing'].includes(error.message)) reset();
@@ -232,7 +260,7 @@ async function leave(concede) {
     } finally {busy=false;}
   } else {
     clearTimeout(botTimer);
-    finish(game,1-game.turn,'surrender'); draw();
+    finish(game,mode === 'bot' ? 1 : 1-game.turn,'surrender'); draw();
   }
 }
 function askLeave(concede) {
@@ -254,6 +282,7 @@ document.addEventListener('click', async event=>{
   if (b.dataset.mode) {mode=b.dataset.mode;draw();}
   if (b.dataset.time) {limit=Number(b.dataset.time);draw();}
   if (b.dataset.net) {networkTab=b.dataset.net;draw();}
+  if (b.id==='mic' && myTurn()) dictate();
   if (b.id==='start') await begin();
   if (b.id==='exit') askLeave(false);
   if (b.id==='again') reset();
