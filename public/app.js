@@ -9,6 +9,7 @@ import {
   expire,
   finish,
 } from "./game.js";
+import { showRoundMap } from "./round-map.js";
 import { icon } from "./icons.js";
 import { createVoiceInput } from "./speech.js";
 
@@ -35,6 +36,7 @@ const $ = (selector) => document.querySelector(selector);
 const main = $("#main");
 const modal = $("#modal");
 const dictionaries = new Map();
+const mapView = { zoom: false };
 const roomKey = "city-atlas-room-v1";
 let lang = localStorage.getItem("city-atlas-language") === "en" ? "en" : "ru";
 let mode = "local",
@@ -412,7 +414,7 @@ function board() {
         t("Сдаться", "Concede") +
         "</button>"
       : "") +
-    "</div>" +
+    '</div><section class="round-map" id="round-map"></section>' +
     (last
       ? '<h2 class="history-title">' +
         t("Цепочка городов", "City chain") +
@@ -434,6 +436,7 @@ function board() {
         "</ol>"
       : "") +
     "</div>";
+  showRoundMap($("#round-map"), game, { t, player, lang, view: mapView });
   updateClock();
   if (networkError) notify(networkError);
 }
@@ -705,6 +708,7 @@ function rules() {
   );
 }
 function reset() {
+  mapView.zoom = false;
   clearTimeout(botTimer);
   sessionStorage.removeItem(roomKey);
   game = null;
