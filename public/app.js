@@ -171,7 +171,51 @@ matchMedia("(prefers-color-scheme: dark)").addEventListener(
     updateThemeButton();
   },
 );
+const screenButton = $("#fullscreen");
+const root = document.documentElement;
+const enterFullscreen = root.requestFullscreen ?? root.webkitRequestFullscreen;
+const leaveFullscreen =
+  document.exitFullscreen ?? document.webkitExitFullscreen;
+const isFullscreen = () =>
+  Boolean(document.fullscreenElement ?? document.webkitFullscreenElement);
+
+function updateScreenButton() {
+  const active = isFullscreen();
+  screenButton.disabled =
+    !enterFullscreen ||
+    !leaveFullscreen ||
+    (document.fullscreenEnabled ?? document.webkitFullscreenEnabled) === false;
+  screenButton.innerHTML = icon(active ? "collapse" : "expand", 18);
+  screenButton.setAttribute("aria-pressed", String(active));
+  screenButton.setAttribute("aria-label", t("Полный экран", "Full screen"));
+  screenButton.title = screenButton.disabled
+    ? t(
+        "Полный экран недоступен в этом браузере",
+        "Full screen is unavailable in this browser",
+      )
+    : active
+      ? t("Выйти из полного экрана", "Exit full screen")
+      : t("На весь экран", "Enter full screen");
+}
+screenButton.addEventListener("click", async () => {
+  $("#screen-notice").textContent = "";
+  try {
+    if (isFullscreen()) await leaveFullscreen.call(document);
+    else await enterFullscreen.call(root);
+  } catch {
+    $("#screen-notice").textContent = t(
+      "Браузер не разрешил изменить полноэкранный режим.",
+      "The browser could not switch full-screen mode.",
+    );
+  }
+  updateScreenButton();
+});
+for (const event of ["fullscreenchange", "webkitfullscreenchange"]) {
+  document.addEventListener(event, updateScreenButton);
+}
+
 function header() {
+  updateScreenButton();
   document.documentElement.lang = lang;
   updateThemeButton();
   const rules = t("Правила", "Rules");

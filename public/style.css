@@ -1149,3 +1149,25 @@ input {
   stroke-width: 1.6px;
   outline: none;
 }
+#screen-notice {
+  margin: 8px auto 0;
+  text-align: center;
+  color: var(--ink);
+  font-size: 14px;
+}
+#screen-notice:empty {
+  display: none;
+}
+:fullscreen {
+  overflow-y: auto;
+  background: var(--paper);
+}
+@media (max-width: 420px) {
+  .head-tools {
+    gap: 7px;
+  }
+  .head-tools .theme-button {
+    width: 32px;
+    height: 32px;
+  }
+}

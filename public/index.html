@@ -38,6 +38,13 @@
             type="button"
             aria-label="Тёмная тема"
           ></button>
+          <button
+            id="fullscreen"
+            type="button"
+            class="theme-button"
+            aria-label="Полный экран"
+            aria-pressed="false"
+          ></button>
           <div class="langs" aria-label="Language">
             <button lang="ru" data-lang="ru">RU</button
             ><button lang="en" data-lang="en">EN</button>
@@ -45,6 +52,7 @@
         </div>
       </div>
     </header>
+    <p id="screen-notice" role="status"></p>
     <main id="main"></main>
     <dialog id="modal"><div id="dialog-content"></div></dialog>
     <script type="module" src="/app.js"></script>
