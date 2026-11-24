@@ -14,6 +14,21 @@ import { createVoiceInput } from "./speech.js";
 
 const voice = createVoiceInput(
   window.SpeechRecognition || window.webkitSpeechRecognition,
+  {
+    canListen: () =>
+      myTurn() &&
+      !busy &&
+      !modal.open &&
+      !document.hidden &&
+      (!game.deadline || Date.now() + clockOffset < game.deadline),
+    language: () => game.lang,
+    onStatus: updateVoiceStatus,
+    onCity: (city) => {
+      const input = $("#city");
+      input.value = city;
+      input.form.requestSubmit();
+    },
+  },
 );
 
 const $ = (selector) => document.querySelector(selector);
@@ -342,11 +357,11 @@ function board() {
     '" autocomplete="off" enterkeyhint="send"' +
     disabled +
     '><button class="icon-btn" id="mic" type="button" aria-pressed="false" title="' +
-    t("Назвать город голосом", "Dictate a city") +
+    t("Голосовая игра с автоотправкой", "Hands-free voice play") +
     '" aria-label="' +
-    t("Назвать город голосом", "Dictate a city") +
+    t("Голосовая игра с автоотправкой", "Hands-free voice play") +
     '"' +
-    disabled +
+    (myTurn() || voice.enabled ? "" : " disabled") +
     ">" +
     icon("mic") +
     '</button><button class="primary"' +
@@ -423,11 +438,13 @@ function board() {
   if (networkError) notify(networkError);
 }
 function draw() {
-  voice.cancel();
+  if (!game || game.winner !== null) voice.disable();
+  else voice.pause();
   header();
   if (game) board();
   else if (room) waiting();
   else lobby();
+  voice.sync();
 }
 function updateClock() {
   const el = $("#time");
@@ -563,10 +580,14 @@ function scheduleBot() {
 async function submit(event) {
   event.preventDefault();
   if (!myTurn() || busy) return;
-  voice.cancel();
+  voice.pause();
   const input = $("#city");
   const city = input.value.trim();
-  if (!city) return notify("empty");
+  if (!city) {
+    notify("empty");
+    voice.sync();
+    return;
+  }
   if (room) {
     busy = true;
     try {
@@ -581,12 +602,14 @@ async function submit(event) {
       notify(error.message);
     } finally {
       busy = false;
+      voice.sync();
     }
     return;
   }
   const error = play(game, city, dictionary);
   if (error && game.winner === null) {
     notify(error);
+    voice.sync();
     input.focus();
     return;
   }
@@ -594,17 +617,18 @@ async function submit(event) {
   scheduleBot();
   if (myTurn()) $("#city")?.focus();
 }
-function dictate() {
-  const input = $("#city"),
-    button = $("#mic"),
+function updateVoiceStatus(state) {
+  const button = $("#mic"),
     status = $("#voice-status");
+  if (!button || !status) return;
   const descriptions = {
     idle: "",
-    listening: t("Слушаю… Назовите город.", "Listening… Say a city name."),
-    review: t(
-      "Проверьте название и нажмите «Ответить».",
-      "Check the name, then press Play city.",
+    ready: t("Назовите следующий город.", "Say the next city."),
+    listening: t(
+      "Слушаю. Назовите город — ход отправится автоматически.",
+      "Listening. Say a city to play it automatically.",
     ),
+    paused: t("Голосовой режим на паузе.", "Voice input paused."),
     unsupported: t(
       "В этом браузере голосовой ввод недоступен. Введите город с клавиатуры.",
       "Voice input is unavailable in this browser. Type your city.",
@@ -630,24 +654,17 @@ function dictate() {
       "Could not start recognition. Type your city instead.",
     ),
   };
-  voice.toggle(
-    game.lang,
-    (city) => {
-      if (myTurn() && input.isConnected) {
-        input.value = city;
-        input.focus();
-      }
-    },
-    (state) => {
-      status.textContent = descriptions[state] ?? descriptions.unavailable;
-      button.classList.toggle("active-mic", state === "listening");
-      button.setAttribute("aria-pressed", String(state === "listening"));
-    },
-  );
+  status.textContent = descriptions[state] ?? descriptions.unavailable;
+  button.classList.toggle("active-mic", state === "listening");
+  button.setAttribute("aria-pressed", String(voice.enabled));
+  button.disabled = !myTurn() && !voice.enabled;
+  button.title = voice.enabled
+    ? t("Выключить голосовую игру", "Turn off voice play")
+    : t("Голосовая игра с автоотправкой", "Hands-free voice play");
 }
 
 function dialog(title, content, action) {
-  voice.cancel();
+  voice.pause();
   confirmation = action;
   $("#dialog-content").innerHTML =
     '<div class="dialog-head"><h2 id="dialog-title">' +
@@ -780,7 +797,7 @@ document.addEventListener("click", async (event) => {
     networkTab = b.dataset.net;
     draw();
   }
-  if (b.id === "mic" && myTurn()) dictate();
+  if (b.id === "mic" && (voice.enabled || myTurn())) voice.toggle();
   if (b.id === "start") await begin();
   if (b.id === "exit") askLeave(false);
   if (b.id === "again") reset();
@@ -812,6 +829,9 @@ main.addEventListener("input", (e) => {
 main.addEventListener("submit", (event) => {
   if (event.target.id === "move") submit(event);
 });
+modal.addEventListener("close", () => voice.sync());
+document.addEventListener("visibilitychange", () => voice.sync());
+window.addEventListener("pagehide", () => voice.disable());
 modal.addEventListener("click", (event) => {
   if (event.target === modal) modal.close();
 });

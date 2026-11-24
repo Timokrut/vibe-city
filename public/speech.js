@@ -1,57 +1,92 @@
-// A recognizer belongs to the input and turn that started it. Ignore late events
-// after a timeout, a submitted move, navigation, or a change of player.
-export function createVoiceInput(Recognition) {
-  let session;
+// Only the current recognizer owns the turn. Browser events can still arrive
+// after abort(), e.g. when the timer expires or a typed move wins the race.
+export function createVoiceInput(
+  Recognition,
+  { canListen, language, onCity, onStatus },
+) {
+  let enabled = false;
+  let active = null;
+  let restart;
 
-  function cancel() {
-    if (!session) return;
-    const { recognition, feedback } = session;
-    session = undefined;
+  function pause() {
+    clearTimeout(restart);
+    if (!active) return;
+    const recognition = active;
+    active = null;
     recognition.abort();
-    feedback("idle");
   }
 
-  function toggle(lang, putText, feedback) {
-    if (session) return cancel();
-    if (!Recognition) return feedback("unsupported");
-    let recognition;
+  function disable(reason = "idle") {
+    enabled = false;
+    pause();
+    onStatus(reason);
+  }
+
+  function sync() {
+    clearTimeout(restart);
+    if (!enabled) return;
+    if (!canListen()) {
+      pause();
+      onStatus("paused");
+    } else if (!active) {
+      onStatus("ready");
+      restart = setTimeout(start, 300);
+    }
+  }
+
+  function start() {
+    if (!enabled || active || !canListen()) return;
+    if (!Recognition) return disable("unsupported");
     try {
-      recognition = new Recognition();
-      recognition.lang = lang === "ru" ? "ru-RU" : "en-US";
+      const recognition = new Recognition();
+      active = recognition;
+      recognition.lang = language() === "ru" ? "ru-RU" : "en-US";
       recognition.continuous = false;
       recognition.interimResults = false;
       recognition.maxAlternatives = 1;
-      session = { recognition, feedback };
-      let outcome = "no-speech";
       recognition.onresult = (event) => {
-        if (session?.recognition !== recognition) return;
-        const result = event.results[event.resultIndex]?.[0]?.transcript;
-        const city = result
+        if (active !== recognition || !canListen()) return;
+        const result = event.results[event.resultIndex];
+        if (!result?.isFinal) return;
+        const city = result[0]?.transcript
           ?.trim()
           .replace(/[.,!?…]+$/u, "")
           .trim();
-        if (city) {
-          outcome = "review";
-          putText(city);
-          feedback(outcome);
-        }
+        if (!city) return;
+        pause();
+        onCity(city);
+        sync();
       };
-      recognition.onerror = (event) => {
-        if (session?.recognition !== recognition) return;
-        outcome = event.error;
-        feedback(outcome);
+      recognition.onerror = ({ error }) => {
+        if (active !== recognition) return;
+        if (error === "no-speech") return; // onend rearms after silence.
+        disable(error);
       };
       recognition.onend = () => {
-        if (session?.recognition !== recognition) return;
-        session = undefined;
-        feedback(outcome);
+        if (active !== recognition) return;
+        active = null;
+        sync();
       };
-      feedback("listening");
+      onStatus("listening");
       recognition.start();
     } catch {
-      session = undefined;
-      feedback("unavailable");
+      disable("unavailable");
     }
   }
-  return { toggle, cancel };
+
+  function toggle() {
+    if (enabled) return disable();
+    enabled = true;
+    start();
+  }
+
+  return {
+    toggle,
+    pause,
+    sync,
+    disable,
+    get enabled() {
+      return enabled;
+    },
+  };
 }
