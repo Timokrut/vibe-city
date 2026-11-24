@@ -103,12 +103,35 @@ function notify(code) {
   const el = $("#notice");
   if (el) el.textContent = code ? message(code) : "";
 }
+function updateThemeButton() {
+  const dark = document.documentElement.dataset.theme === "dark";
+  const button = $("#theme");
+  button.innerHTML = icon(dark ? "sun" : "moon", 19);
+  button.setAttribute("aria-label", t("Тёмная тема", "Dark theme"));
+  button.setAttribute("aria-pressed", String(dark));
+  button.title = dark
+    ? t("Включить светлую тему", "Use light theme")
+    : t("Включить тёмную тему", "Use dark theme");
+  $('meta[name="theme-color"]').content = dark ? "#14201e" : "#f9f7f0";
+}
+$("#theme").addEventListener("click", () => {
+  const theme =
+    document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = theme;
+  localStorage.setItem("atlas-theme", theme);
+  updateThemeButton();
+});
+matchMedia("(prefers-color-scheme: dark)").addEventListener(
+  "change",
+  ({ matches }) => {
+    if (localStorage.getItem("atlas-theme")) return;
+    document.documentElement.dataset.theme = matches ? "dark" : "light";
+    updateThemeButton();
+  },
+);
 function header() {
   document.documentElement.lang = lang;
-  document.title = $("#brand-name").textContent = t(
-    "Атлас городов",
-    "City Atlas",
-  );
+  updateThemeButton();
   const rules = t("Правила", "Rules");
   $("#rules").innerHTML = icon("book", 18) + "<span>" + rules + "</span>";
   $("#rules").setAttribute("aria-label", rules);
@@ -128,9 +151,7 @@ function hero() {
     '<section class="hero"><div class="hero-copy"><div class="caption">' +
     icon("route", 16) +
     t("Игра на последнюю букву", "The last-letter game") +
-    "</div><h1>" +
-    t("Города <em>мира</em>", "Cities of the <em>world</em>") +
-    "</h1><p>" +
+    "</div><h1>Atlas</h1><p>" +
     t(
       "Назовите город на последнюю букву предыдущего. Как далеко вы доберётесь?",
       "Name a city starting with the last letter of the previous city. How far can you go?",

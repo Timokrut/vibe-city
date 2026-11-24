@@ -1,3 +1,11 @@
+@font-face {
+  font-family: "Cormorant Garamond";
+  src: url("/assets/fonts/cormorant-garamond-latin-600-italic.woff2")
+    format("woff2");
+  font-style: italic;
+  font-weight: 600;
+  font-display: swap;
+}
 * {
   box-sizing: border-box;
 }
@@ -20,6 +28,82 @@
     sans-serif;
   color: var(--ink);
   background: var(--paper);
+}
+[data-theme="dark"] {
+  color-scheme: dark;
+  --paper: #14201e;
+  --ink: #f0eddd;
+  --green: #acd8b0;
+  --muted: #b4c0b6;
+  --line: #3d5149;
+  --cream: #1e2c29;
+}
+[data-theme="dark"] body {
+  background: var(--paper);
+}
+[data-theme="dark"] .langs,
+[data-theme="dark"] .timer-panel,
+[data-theme="dark"] .net-panel,
+[data-theme="dark"] .player,
+[data-theme="dark"] .icon-btn,
+[data-theme="dark"] .copy {
+  background: #24342f;
+}
+[data-theme="dark"] .mode.chosen,
+[data-theme="dark"] .player.current {
+  background: #293f33;
+  border-color: #8fb89a;
+}
+[data-theme="dark"] .chip.on {
+  background: #354e3e;
+  color: #d9ecd5;
+  box-shadow: inset 0 0 0 1px #627c67;
+}
+[data-theme="dark"] .chip:hover {
+  background: #34463c;
+}
+[data-theme="dark"] .primary,
+[data-theme="dark"] .langs .sel,
+[data-theme="dark"] .chosen .radio {
+  color: #163122;
+}
+[data-theme="dark"] .primary:hover:not(:disabled) {
+  background: #c1e6c3;
+}
+[data-theme="dark"] .notice,
+[data-theme="dark"] .time.urgent {
+  color: #ffb49a;
+}
+[data-theme="dark"] .turn-title .caption {
+  color: #b6ceaf;
+}
+[data-theme="dark"] .field .active-mic {
+  background: #684338;
+  color: #ffceaf;
+}
+.theme-button {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: transparent;
+  border: 1px solid var(--line);
+}
+.theme-button:hover {
+  background: var(--cream);
+}
+#brand-name,
+.hero h1 {
+  font-family: "Cormorant Garamond", Baskerville, Georgia, serif;
+  font-style: italic;
+  font-weight: 600;
+}
+#brand-name {
+  font-size: 38px;
+  line-height: 1;
+  letter-spacing: -0.055em;
+  padding-right: 3px;
 }
 body {
   margin: 0;
@@ -178,16 +262,11 @@ main {
   color: #d5e6c5;
 }
 .hero h1 {
-  font-family: Georgia, "Times New Roman", serif;
-  font-weight: 500;
+  color: #ffe9bb;
   letter-spacing: -0.055em;
-  line-height: 1.06;
-  font-size: clamp(51px, 5vw, 76px);
-  margin: 12px 0;
-}
-.hero h1 em {
-  font-weight: 400;
-  color: #f3d6a3;
+  line-height: 0.95;
+  font-size: clamp(74px, 7vw, 100px);
+  margin: 8px 0 14px;
 }
 .hero p {
   color: #f0f1df;
@@ -713,7 +792,7 @@ input {
     );
   }
   .hero h1 {
-    font-size: 49px;
+    font-size: 73px;
   }
   .hero p {
     font-size: 14px;
