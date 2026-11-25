@@ -1,4 +1,5 @@
 const paths = {
+  pencil: '<path d="m4 16-.5 5 5-1L20 8l-4-4zM14 6l4 4"/>',
   expand: '<path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/>',
   collapse: '<path d="M3 8h5V3m13 5h-5V3M8 21v-5H3m13 5v-5h5"/>',
   moon: '<path d="M20.5 14.1A8.7 8.7 0 0 1 9.9 3.5a8.8 8.8 0 1 0 10.6 10.6Z"/>',

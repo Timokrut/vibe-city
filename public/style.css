@@ -1171,3 +1171,105 @@ input {
     height: 32px;
   }
 }
+.profile-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 12px 20px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--cream);
+}
+.profile-panel > div,
+.photo-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.profile-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  padding: 4px 12px 4px 5px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.profile-chip > span:not(.avatar),
+.player-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.avatar {
+  display: inline-grid;
+  place-items: center;
+  background: var(--cream);
+  border: 1px solid var(--line);
+  color: var(--green);
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  overflow: hidden;
+  flex: none;
+}
+.avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.player {
+  min-width: 0;
+}
+.player .count {
+  flex: none;
+}
+.photo-preview .avatar {
+  width: 68px;
+  height: 68px;
+}
+.photo-preview svg {
+  width: 28px;
+  height: 28px;
+}
+.profile-editor .photo-row {
+  margin: 20px 0;
+}
+.photo-row .sub {
+  margin: 5px 0 0;
+}
+.profile-editor label {
+  display: grid;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.turn-title .caption,
+.panel h1,
+.history li span:last-child,
+.map-selected,
+.profile-editor label {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 620px) {
+  .profile-panel {
+    align-items: flex-start;
+    flex-direction: column;
+    padding: 13px;
+  }
+  .profile-chip {
+    font-size: 13px;
+  }
+  .player .avatar {
+    width: 25px;
+    height: 25px;
+  }
+}

@@ -10,6 +10,7 @@ import {
   expire,
   finish,
 } from "./game.js";
+import { loadProfiles, editProfile, avatarMarkup } from "./profile-editor.js";
 import { showRoundMap } from "./round-map.js";
 import { icon } from "./icons.js";
 import { createVoiceInput } from "./speech.js";
@@ -38,6 +39,8 @@ const main = $("#main");
 const modal = $("#modal");
 const dictionaries = new Map();
 const mapView = { zoom: false };
+let profiles = loadProfiles();
+let roomProfiles = [];
 const roomKey = "city-atlas-room-v1";
 let lang = localStorage.getItem("city-atlas-language") === "en" ? "en" : "ru";
 let topic = "cities";
@@ -82,12 +85,15 @@ const modes = () => ({
 });
 const stamp = (key) =>
   '<span class="stamp ' + key + '">' + icon(key, 30) + "</span>";
-const player = (n) =>
+const defaultPlayer = (n) =>
   mode === "bot"
     ? n
       ? t("Бот", "Bot")
       : t("Вы", "You")
     : t("Игрок ", "Player ") + (n + 1);
+const profileAt = (n) =>
+  room ? roomProfiles[n] : mode === "bot" && n === 1 ? undefined : profiles[n];
+const player = (n) => profileAt(n)?.nickname || defaultPlayer(n);
 const myTurn = () =>
   game &&
   game.winner === null &&
@@ -313,6 +319,16 @@ function lobby() {
         : "") +
       "</div>";
   }
+  const profileButtons = (mode === "local" ? [0, 1] : [0])
+    .map((seat) => {
+      const label =
+        mode === "local" ? defaultPlayer(seat) : t("Мой профиль", "My profile");
+      const name = profiles[seat].nickname || label;
+      return `<button type="button" class="profile-chip" data-profile="${seat}" aria-label="${esc(t("Настроить профиль", "Edit profile") + " · " + label)}">
+      ${avatarMarkup(profiles[seat])}<span>${esc(name)}</span>${icon("pencil", 14)}</button>`;
+    })
+    .join("");
+  const profilePanel = `<div class="profile-panel"><strong>${mode === "local" ? t("Игроки", "Players") : t("Игрок", "Player")}</strong><div>${profileButtons}</div></div>`;
   const timerOptions = [...limits, "custom"]
     .map((value) => {
       const selected = timerChoice === value;
@@ -345,6 +361,7 @@ function lobby() {
     cards +
     "</div>" +
     network +
+    profilePanel +
     (join ? "" : timer) +
     '<p class="notice" role="status" id="notice"></p><div class="launch"><button class="primary" id="start">' +
     (join
@@ -398,10 +415,11 @@ function board() {
         '<div class="player ' +
         ((done ? game.winner : game.turn) === n ? "current" : "") +
         '">' +
-        icon(n === 1 && mode === "bot" ? "bot" : "pin", 16) +
-        player(n) +
+        avatarMarkup(profileAt(n), n === 1 && mode === "bot" ? "bot" : "pin") +
+        '<span class="player-name">' +
+        esc(player(n)) +
         (room?.seat === n ? t(" (вы)", " (you)") : "") +
-        '<span class="count">' +
+        '</span><span class="count">' +
         game.history.filter((h) => h.player === n).length +
         "</span></div>",
     )
@@ -418,7 +436,7 @@ function board() {
     surrender: t("Один из игроков сдался.", "A player conceded."),
   };
   const heading = done
-    ? t("Победа", "Winner") + " · " + player(game.winner)
+    ? t("Победа", "Winner") + " · " + esc(player(game.winner))
     : last
       ? placeText(
           "Город на «",
@@ -494,7 +512,7 @@ function board() {
         " " +
         (game.history.length + 1) +
         " · " +
-        player(game.turn)) +
+        esc(player(game.turn))) +
     '</span><span class="time" id="time"></span></div><h1>' +
     heading +
     '</h1><p class="sub">' +
@@ -548,7 +566,7 @@ function board() {
               "</span><strong>" +
               esc(h.name) +
               "</strong><span>" +
-              player(h.player) +
+              esc(player(h.player)) +
               "</span></li>",
           )
           .join("") +
@@ -584,6 +602,9 @@ async function api(path, body, token) {
     cache: "no-store",
     headers: {
       "Content-Type": "application/json",
+      ...(token && roomProfiles.length
+        ? { "X-Atlas-Profile-Count": String(roomProfiles.length) }
+        : {}),
       ...(token ? { Authorization: "Bearer " + token } : {}),
     },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -595,10 +616,12 @@ async function api(path, body, token) {
 }
 function sync(data) {
   const changed =
+    (data.profiles && data.profiles.length !== roomProfiles.length) ||
     !room ||
     !game !== !data.game ||
     game?.history.length !== data.game?.history.length ||
     game?.winner !== data.game?.winner;
+  if (data.profiles) roomProfiles = data.profiles;
   clockOffset = data.serverNow - Date.now();
   room = {
     ...room,
@@ -661,8 +684,8 @@ async function begin() {
         throw new Error("invalid");
       const data =
         networkTab === "join"
-          ? await api("/" + typedCode + "/join", {})
-          : await api("", { lang, limit, topic });
+          ? await api("/" + typedCode + "/join", { profile: profiles[0] })
+          : await api("", { lang, limit, topic, profile: profiles[0] });
       lang = data.lang;
       sync(data);
     } else {
@@ -859,6 +882,7 @@ function reset() {
   sessionStorage.removeItem(roomKey);
   game = null;
   room = null;
+  roomProfiles = [];
   clockOffset = 0;
   networkError = "";
   draw();
@@ -928,6 +952,28 @@ document.addEventListener("click", async (event) => {
     return confirmation?.();
   }
   if (busy) return;
+  if (b.hasAttribute("data-profile") && !room && !game) {
+    const seat = Number(b.dataset.profile);
+    const title =
+      mode === "local"
+        ? t("Профиль", "Profile") + " · " + defaultPlayer(seat)
+        : t("Мой профиль", "My profile");
+    editProfile({
+      seat,
+      profiles,
+      title,
+      placeholder: defaultPlayer(seat),
+      t,
+      dialog,
+      modal,
+      onSave: (updated) => {
+        profiles = updated;
+        draw();
+        document.querySelector('[data-profile="' + seat + '"]')?.focus();
+      },
+    });
+    return;
+  }
   if (b.dataset.lang) {
     lang = b.dataset.lang;
     localStorage.setItem("city-atlas-language", lang);
