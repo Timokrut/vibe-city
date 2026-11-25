@@ -10,6 +10,8 @@ import {
   validTurnLimit,
 } from "./public/game.js";
 
+import { readProfile, avatarLimit } from "./public/profile.js";
+
 const rooms = new Map();
 const dictionaries = new Map();
 const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -34,12 +36,12 @@ function json(res, status, value) {
   res.end(JSON.stringify(value));
 }
 
-async function readBody(req) {
+async function readBody(req, maxLength) {
   let length = 0;
   const chunks = [];
   for await (const chunk of req) {
     length += chunk.length;
-    if (length > 2048) throw new Error("large");
+    if (length > maxLength) throw new Error("large");
     chunks.push(chunk);
   }
   const body = JSON.parse(Buffer.concat(chunks).toString() || "{}");
@@ -48,11 +50,13 @@ async function readBody(req) {
   return body;
 }
 
-function snapshot(room, seat) {
+function snapshot(room, seat, knownCount) {
   if (room.game) expire(room.game);
   return {
     code: room.code,
     seat,
+    profiles:
+      knownCount === String(room.profiles.length) ? undefined : room.profiles,
     lang: room.lang,
     limit: room.limit,
     topic: room.topic,
@@ -76,9 +80,12 @@ export async function roomApi(req, res, path) {
   if (req.method !== (code && !action ? "GET" : "POST"))
     return fail(405, "invalid");
   let body = {};
+  let profile;
   if (req.method === "POST") {
     try {
-      body = await readBody(req);
+      const acceptsProfile = !code || action === "join";
+      body = await readBody(req, acceptsProfile ? avatarLimit + 2048 : 2048);
+      if (acceptsProfile) profile = readProfile(body.profile);
     } catch {
       return fail(400, "invalid");
     }
@@ -103,6 +110,7 @@ export async function roomApi(req, res, path) {
       lang: body.lang,
       limit: body.limit,
       tokens: [token],
+      profiles: [profile],
       game: null,
       activeAt: Date.now(),
     };
@@ -115,6 +123,7 @@ export async function roomApi(req, res, path) {
     if (room.tokens.length === 2) return fail(409, "full");
     const token = randomBytes(24).toString("hex");
     room.tokens.push(token);
+    room.profiles.push(profile);
     room.activeAt = Date.now();
     room.game = startGame(room.lang, room.limit, Date.now(), room.topic);
     return json(res, 200, { ...snapshot(room, 1), token });
@@ -145,5 +154,5 @@ export async function roomApi(req, res, path) {
     );
     if (error) return fail(422, error);
   }
-  json(res, 200, snapshot(room, seat));
+  json(res, 200, snapshot(room, seat, req.headers["x-atlas-profile-count"]));
 }

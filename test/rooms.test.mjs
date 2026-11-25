@@ -24,11 +24,25 @@ test("two clients join, resume, alternate turns and see the same outcome", async
   for (const limit of [1201, -1, 1.5, "60", null]) {
     assert.equal((await request("", { lang: "ru", limit })).status, 400);
   }
-  const { data: host } = await request("", { lang: "ru", limit: 1200 });
+  const profile = { nickname: "Север", avatar: "" };
+  const { data: host } = await request("", {
+    lang: "ru",
+    limit: 1200,
+    profile,
+  });
   const path = "/" + host.code;
   assert.equal(host.game, null);
   assert.equal((await request(path)).status, 403);
+  assert.equal(
+    (
+      await request(path + "/join", {
+        profile: { avatar: "https://example.org/photo.png" },
+      })
+    ).status,
+    400,
+  );
   const { data: guest } = await request(path + "/join", {});
+  assert.deepEqual(guest.profiles, [profile, { nickname: "", avatar: "" }]);
   assert.equal(guest.seat, 1);
   assert.equal(guest.game.limit, 1200);
   assert.notEqual(host.token, guest.token);
@@ -62,6 +76,7 @@ test("two clients join, resume, alternate turns and see the same outcome", async
   );
   assert.equal(result.data.game.next, "н");
   const resumed = await request(path, undefined, host.token);
+  assert.deepEqual(resumed.data.profiles, guest.profiles);
   assert.deepEqual(resumed.data.game.history, result.data.game.history);
   await request(path + "/leave", { concede: true }, guest.token);
   const final = await request(path, undefined, host.token);
