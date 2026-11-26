@@ -1,3 +1,4 @@
+import { writePreference } from "./preferences.js";
 import { icon } from "./icons.js";
 
 const worldWidth = 720;
@@ -286,6 +287,7 @@ export async function showRoundMap(container, game, { t, player, lang, view }) {
   }
   zoomButton.onclick = () => {
     view.zoom = !view.zoom;
+    writePreference("atlas-map-zoom", view.zoom ? "on" : "off");
     paint();
   };
   svg.addEventListener("click", (event) => {

@@ -14,14 +14,19 @@ import {
 import { loadProfiles, editProfile, avatarMarkup } from "./profile-editor.js";
 import { showRoundMap } from "./round-map.js";
 import { icon } from "./icons.js";
+import {
+  readMenuPreferences,
+  readPreference,
+  writePreference,
+} from "./preferences.js";
 import { createVoiceInput } from "./speech.js";
 
 import { createTurnChime, createNarrator } from "./turn-audio.js";
 
 const chime = createTurnChime(window.AudioContext || window.webkitAudioContext);
-let chimeEnabled = localStorage.getItem("atlas-turn-chime") !== "off";
+let chimeEnabled = readPreference("atlas-turn-chime") !== "off";
 
-let narrateBot = localStorage.getItem("atlas-bot-speech") === "on";
+let narrateBot = readPreference("atlas-bot-speech") === "on";
 const narrator = createNarrator(
   window.speechSynthesis,
   window.SpeechSynthesisUtterance,
@@ -36,41 +41,36 @@ const narrator = createNarrator(
   },
 );
 
-const voice = createVoiceInput(
-  window.SpeechRecognition || window.webkitSpeechRecognition,
-  {
-    canListen: () =>
-      myTurn() &&
-      !busy &&
-      !narrator.speaking &&
-      !modal.open &&
-      !document.hidden &&
-      (!game.deadline || Date.now() + clockOffset < game.deadline),
-    language: () => game.lang,
-    onStatus: updateVoiceStatus,
-    onCity: (city) => {
-      const input = $("#city");
-      input.value = city;
-      input.form.requestSubmit();
-    },
+const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+let voicePreferred = readPreference("atlas-voice-input") === "on";
+const voice = createVoiceInput(Recognition, {
+  canListen: () =>
+    myTurn() &&
+    !busy &&
+    !narrator.speaking &&
+    !modal.open &&
+    !document.hidden &&
+    (!game.deadline || Date.now() + clockOffset < game.deadline),
+  language: () => game.lang,
+  onStatus: updateVoiceStatus,
+  onCity: (city) => {
+    const input = $("#city");
+    input.value = city;
+    input.form.requestSubmit();
   },
-);
+});
 
 const $ = (selector) => document.querySelector(selector);
 const main = $("#main");
 const modal = $("#modal");
 const dictionaries = new Map();
-const mapView = { zoom: false };
+const mapView = { zoom: readPreference("atlas-map-zoom") === "on" };
 let profiles = loadProfiles();
 let roomProfiles = [];
 const roomKey = "city-atlas-room-v1";
-let lang = localStorage.getItem("city-atlas-language") === "en" ? "en" : "ru";
-let topic = "cities";
-let mode = "local",
-  timerChoice = 0,
-  customSeconds = "90",
-  networkTab = "create",
-  typedCode = "";
+let { lang, topic, mode, timerChoice, customSeconds, networkTab } =
+  readMenuPreferences();
+let typedCode = "";
 let game = null,
   room = null,
   dictionary = null,
@@ -200,13 +200,13 @@ $("#theme").addEventListener("click", () => {
   const theme =
     document.documentElement.dataset.theme === "dark" ? "light" : "dark";
   document.documentElement.dataset.theme = theme;
-  localStorage.setItem("atlas-theme", theme);
+  writePreference("atlas-theme", theme);
   updateThemeButton();
 });
 matchMedia("(prefers-color-scheme: dark)").addEventListener(
   "change",
   ({ matches }) => {
-    if (localStorage.getItem("atlas-theme")) return;
+    if (readPreference("atlas-theme")) return;
     document.documentElement.dataset.theme = matches ? "dark" : "light";
     updateThemeButton();
   },
@@ -295,11 +295,15 @@ function hero() {
   );
 }
 function soundControls() {
+  const microphone =
+    game || !Recognition
+      ? ""
+      : `<label><input type="checkbox" data-sound="mic" ${voicePreferred ? "checked" : ""}> ${t("Голосовой ввод", "Voice input")}</label>`;
   const speech =
     mode === "bot"
       ? `<label><input type="checkbox" data-sound="speech" ${narrateBot && narrator.available ? "checked" : ""} ${narrator.available ? "" : "disabled"}> ${t("Озвучка бота", "Speak bot moves")}</label><span id="speech-feedback" class="sub" role="status">${narrator.available ? "" : t("В этом браузере озвучка недоступна.", "Speech output is unavailable in this browser.")}</span>`
       : "";
-  return `<div class="sound-controls"><label><input type="checkbox" data-sound="chime" ${chimeEnabled ? "checked" : ""}> ${t("Звук смены хода", "Turn sound")}</label>${speech}</div>`;
+  return `<div class="sound-controls"><label><input type="checkbox" data-sound="chime" ${chimeEnabled ? "checked" : ""}> ${t("Звук смены хода", "Turn sound")}</label>${speech}${microphone}</div>`;
 }
 function turnSound() {
   if (chimeEnabled && game.winner === null && !document.hidden) chime.play();
@@ -713,6 +717,7 @@ async function api(path, body, token) {
   return data;
 }
 function sync(data) {
+  const starting = !game && data.game?.winner === null;
   const advanced =
     game && data.game && data.game.history.length > game.history.length;
   const changed =
@@ -734,6 +739,7 @@ function sync(data) {
   mode = "online";
   sessionStorage.setItem(roomKey, JSON.stringify(room));
   if (changed || !$("#exit")) draw();
+  if (starting && voicePreferred) voice.toggle();
   if (advanced) turnSound();
 }
 async function poll() {
@@ -806,12 +812,14 @@ async function begin() {
       dictionary = dictionaries.get(key);
       game = startGame(chosenLang, limit, Date.now(), topic);
       draw();
+      if (voicePreferred) voice.toggle();
       $("#city")?.focus();
     }
   } catch (error) {
     notify(error.message);
   } finally {
     busy = false;
+    voice.sync();
     if ($("#start")) $("#start").disabled = false;
   }
 }
@@ -992,7 +1000,8 @@ function rules() {
 }
 function reset() {
   narrator.cancel();
-  mapView.zoom = false;
+  ({ lang, topic, mode, timerChoice, customSeconds, networkTab } =
+    readMenuPreferences());
   clearTimeout(botTimer);
   sessionStorage.removeItem(roomKey);
   game = null;
@@ -1093,29 +1102,36 @@ document.addEventListener("click", async (event) => {
   if (b.dataset.lang) {
     narrator.cancel();
     lang = b.dataset.lang;
-    localStorage.setItem("city-atlas-language", lang);
+    writePreference("city-atlas-language", lang);
     draw();
   }
   if (b.dataset.topic) {
     topic = b.dataset.topic;
+    writePreference("atlas-topic", topic);
     draw();
   }
   if (b.dataset.mode) {
     narrator.cancel();
     mode = b.dataset.mode;
+    writePreference("atlas-mode", mode);
     draw();
   }
   if (b.dataset.time) {
     timerChoice =
       b.dataset.time === "custom" ? "custom" : Number(b.dataset.time);
+    writePreference("atlas-timer", timerChoice);
     draw();
     if (timerChoice === "custom") $("#seconds").select();
   }
   if (b.dataset.net) {
     networkTab = b.dataset.net;
+    writePreference("atlas-network-tab", networkTab);
     draw();
   }
-  if (b.id === "mic" && (voice.enabled || myTurn())) voice.toggle();
+  if (b.id === "mic" && (voice.enabled || myTurn())) {
+    voice.toggle();
+    setVoicePreference(voice.enabled);
+  }
   if (b.id === "start") await begin();
   if (b.id === "exit") askLeave(false);
   if (b.id === "again") reset();
@@ -1140,10 +1156,16 @@ document.addEventListener(
   },
   { capture: true },
 );
+function setVoicePreference(enabled) {
+  voicePreferred = enabled;
+  writePreference("atlas-voice-input", enabled ? "on" : "off");
+}
 main.addEventListener("change", (event) => {
+  if (event.target.dataset.sound === "mic")
+    setVoicePreference(event.target.checked);
   if (event.target.dataset.sound === "speech") {
     narrateBot = event.target.checked;
-    localStorage.setItem("atlas-bot-speech", narrateBot ? "on" : "off");
+    writePreference("atlas-bot-speech", narrateBot ? "on" : "off");
     $("#speech-feedback").textContent = "";
     if (!narrateBot) narrator.cancel();
     else if (game && myTurn() && game.history.length)
@@ -1156,13 +1178,16 @@ main.addEventListener("change", (event) => {
   }
   if (event.target.dataset.sound === "chime") {
     chimeEnabled = event.target.checked;
-    localStorage.setItem("atlas-turn-chime", chimeEnabled ? "on" : "off");
+    writePreference("atlas-turn-chime", chimeEnabled ? "on" : "off");
     if (chimeEnabled) chime.unlock();
   }
 });
 main.addEventListener("input", (e) => {
   if (e.target.id === "seconds") {
     customSeconds = e.target.value;
+    const seconds = e.target.valueAsNumber;
+    if (seconds > 0 && validTurnLimit(seconds) && e.target.validity.valid)
+      writePreference("atlas-custom-seconds", seconds);
     e.target.removeAttribute("aria-invalid");
     notify("");
   }
