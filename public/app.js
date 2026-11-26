@@ -16,10 +16,25 @@ import { showRoundMap } from "./round-map.js";
 import { icon } from "./icons.js";
 import { createVoiceInput } from "./speech.js";
 
-import { createTurnChime } from "./turn-audio.js";
+import { createTurnChime, createNarrator } from "./turn-audio.js";
 
 const chime = createTurnChime(window.AudioContext || window.webkitAudioContext);
 let chimeEnabled = localStorage.getItem("atlas-turn-chime") !== "off";
+
+let narrateBot = localStorage.getItem("atlas-bot-speech") === "on";
+const narrator = createNarrator(
+  window.speechSynthesis,
+  window.SpeechSynthesisUtterance,
+  () => voice.sync(),
+  () => {
+    const feedback = $("#speech-feedback");
+    if (feedback)
+      feedback.textContent = t(
+        "Не удалось воспроизвести речь. Проверьте голос для языка партии в настройках устройства.",
+        "Speech playback failed. Check the voice for this language in your device settings.",
+      );
+  },
+);
 
 const voice = createVoiceInput(
   window.SpeechRecognition || window.webkitSpeechRecognition,
@@ -27,6 +42,7 @@ const voice = createVoiceInput(
     canListen: () =>
       myTurn() &&
       !busy &&
+      !narrator.speaking &&
       !modal.open &&
       !document.hidden &&
       (!game.deadline || Date.now() + clockOffset < game.deadline),
@@ -64,9 +80,17 @@ let busy = false,
   botTimer,
   networkError = "",
   confirmation;
-const t = (ru, en) => (lang === "ru" ? ru : en);
-const placeText = (citiesRu, citiesEn, countriesRu, countriesEn) =>
-  topic === "countries" ? t(countriesRu, countriesEn) : t(citiesRu, citiesEn);
+const t = (ru, en, language = lang) => (language === "ru" ? ru : en);
+const placeText = (
+  citiesRu,
+  citiesEn,
+  countriesRu,
+  countriesEn,
+  language = lang,
+) =>
+  topic === "countries"
+    ? t(countriesRu, countriesEn, language)
+    : t(citiesRu, citiesEn, language);
 const esc = (value) =>
   String(value).replace(
     /[&<>"']/g,
@@ -104,12 +128,13 @@ const myTurn = () =>
   game &&
   game.winner === null &&
   (mode === "local" || game.turn === (room?.seat ?? 0));
-const messages = () => ({
+const messages = (language = lang) => ({
   empty: placeText(
     "Введите название города.",
     "Enter a city name.",
     "Введите название страны.",
     "Enter a country name.",
+    language,
   ),
   letter:
     placeText(
@@ -117,6 +142,7 @@ const messages = () => ({
       "Choose a city starting with ",
       "Нужна страна на букву ",
       "Choose a country starting with ",
+      language,
     ) +
     (game?.next || "").toUpperCase() +
     ".",
@@ -125,12 +151,14 @@ const messages = () => ({
     "City not found. Check the spelling or try another city.",
     "Этой страны нет в словаре. Проверьте название или назовите другую страну.",
     "Country not found. Check the spelling or try another country.",
+    language,
   ),
   repeat: placeText(
     "Этот город уже был в цепочке.",
     "That city has already been played.",
     "Эта страна уже была в цепочке.",
     "That country has already been played.",
+    language,
   ),
   ended: t("Партия окончена.", "The game has ended."),
   notTurn: t("Дождитесь своего хода.", "Wait for your turn."),
@@ -267,10 +295,46 @@ function hero() {
   );
 }
 function soundControls() {
-  return `<div class="sound-controls"><label><input type="checkbox" data-sound="chime" ${chimeEnabled ? "checked" : ""}> ${t("Звук смены хода", "Turn sound")}</label></div>`;
+  const speech =
+    mode === "bot"
+      ? `<label><input type="checkbox" data-sound="speech" ${narrateBot && narrator.available ? "checked" : ""} ${narrator.available ? "" : "disabled"}> ${t("Озвучка бота", "Speak bot moves")}</label><span id="speech-feedback" class="sub" role="status">${narrator.available ? "" : t("В этом браузере озвучка недоступна.", "Speech output is unavailable in this browser.")}</span>`
+      : "";
+  return `<div class="sound-controls"><label><input type="checkbox" data-sound="chime" ${chimeEnabled ? "checked" : ""}> ${t("Звук смены хода", "Turn sound")}</label>${speech}</div>`;
 }
 function turnSound() {
   if (chimeEnabled && game.winner === null && !document.hidden) chime.play();
+}
+function speakBot(text) {
+  if (mode === "bot" && narrateBot && !document.hidden && !modal.open) {
+    narrator.say(text, game.lang);
+  }
+}
+function narrateTurn(botName = "") {
+  if (mode !== "bot" || !narrateBot) return;
+  const ru = game.lang === "ru";
+  let prompt;
+  if (game.winner !== null) {
+    prompt =
+      game.winner === 0
+        ? ru
+          ? "Вы победили."
+          : "You win."
+        : ru
+          ? "Победил бот."
+          : "The bot wins.";
+    if (game.reason === "timeout")
+      prompt = (ru ? "Время истекло. " : "Time is up. ") + prompt;
+  } else if (game.next) {
+    prompt =
+      (ru ? "Ваш ход на букву " : "Your turn. The letter is ") +
+      game.next.toUpperCase() +
+      ".";
+  } else {
+    prompt = ru
+      ? "Назовите любую оставшуюся страну."
+      : "Name any remaining country.";
+  }
+  speakBot(botName ? botName + ". " + prompt : prompt);
 }
 function lobby() {
   const join = mode === "online" && networkTab === "join";
@@ -712,6 +776,7 @@ async function begin() {
     customInput.focus();
     return notify("timerRange");
   }
+  narrator.cancel();
   busy = true;
   $("#start").disabled = true;
   networkError = "";
@@ -758,8 +823,13 @@ function scheduleBot() {
     // Prefer widely known places, keeping some variety between games.
     const city = pool[Math.floor(Math.random() * Math.min(pool.length, 30))];
     if (city) {
-      if (!play(game, city.name, dictionary)) turnSound();
-    } else finish(game, 0, "exhausted");
+      const error = play(game, city.name, dictionary);
+      if (!error) turnSound();
+      narrateTurn(error ? "" : game.history.at(-1).name);
+    } else {
+      finish(game, 0, "exhausted");
+      narrateTurn();
+    }
     draw();
     $("#city")?.focus();
   }, 700);
@@ -767,11 +837,13 @@ function scheduleBot() {
 async function submit(event) {
   event.preventDefault();
   if (!myTurn() || busy) return;
+  narrator.cancel();
   voice.pause();
   const input = $("#city");
   const city = input.value.trim();
   if (!city) {
     notify("empty");
+    speakBot(messages(game.lang).empty);
     voice.sync();
     return;
   }
@@ -796,11 +868,13 @@ async function submit(event) {
   const error = play(game, city, dictionary);
   if (error && game.winner === null) {
     notify(error);
+    speakBot(messages(game.lang)[error]);
     voice.sync();
     input.focus();
     return;
   }
   if (!error) turnSound();
+  if (game.winner !== null) narrateTurn();
   draw();
   scheduleBot();
   if (myTurn()) $("#city")?.focus();
@@ -867,6 +941,7 @@ function updateVoiceStatus(state) {
 }
 
 function dialog(title, content, action) {
+  narrator.cancel();
   voice.pause();
   confirmation = action;
   $("#dialog-content").innerHTML =
@@ -916,6 +991,7 @@ function rules() {
   );
 }
 function reset() {
+  narrator.cancel();
   mapView.zoom = false;
   clearTimeout(botTimer);
   sessionStorage.removeItem(roomKey);
@@ -951,6 +1027,7 @@ async function leave(concede) {
   } else {
     clearTimeout(botTimer);
     finish(game, mode === "bot" ? 1 : 1 - game.turn, "surrender");
+    narrateTurn();
     draw();
   }
 }
@@ -1014,6 +1091,7 @@ document.addEventListener("click", async (event) => {
     return;
   }
   if (b.dataset.lang) {
+    narrator.cancel();
     lang = b.dataset.lang;
     localStorage.setItem("city-atlas-language", lang);
     draw();
@@ -1023,6 +1101,7 @@ document.addEventListener("click", async (event) => {
     draw();
   }
   if (b.dataset.mode) {
+    narrator.cancel();
     mode = b.dataset.mode;
     draw();
   }
@@ -1062,6 +1141,19 @@ document.addEventListener(
   { capture: true },
 );
 main.addEventListener("change", (event) => {
+  if (event.target.dataset.sound === "speech") {
+    narrateBot = event.target.checked;
+    localStorage.setItem("atlas-bot-speech", narrateBot ? "on" : "off");
+    $("#speech-feedback").textContent = "";
+    if (!narrateBot) narrator.cancel();
+    else if (game && myTurn() && game.history.length)
+      narrateTurn(game.history.at(-1).name);
+    else
+      narrator.say(
+        t("Озвучка бота включена.", "Bot speech is on.", game?.lang ?? lang),
+        game?.lang ?? lang,
+      );
+  }
   if (event.target.dataset.sound === "chime") {
     chimeEnabled = event.target.checked;
     localStorage.setItem("atlas-turn-chime", chimeEnabled ? "on" : "off");
@@ -1083,8 +1175,14 @@ main.addEventListener("submit", (event) => {
   if (event.target.id === "move") submit(event);
 });
 modal.addEventListener("close", () => voice.sync());
-document.addEventListener("visibilitychange", () => voice.sync());
-window.addEventListener("pagehide", () => voice.disable());
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) narrator.cancel();
+  voice.sync();
+});
+window.addEventListener("pagehide", () => {
+  voice.disable();
+  narrator.cancel();
+});
 modal.addEventListener("click", (event) => {
   if (event.target === modal) modal.close();
 });
@@ -1093,6 +1191,7 @@ setInterval(() => {
     if (!room) expire(game);
     if (game.winner !== null) {
       clearTimeout(botTimer);
+      narrateTurn();
       draw();
     } else updateClock();
   }

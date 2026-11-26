@@ -37,3 +37,58 @@ export function createTurnChime(AudioContext) {
     },
   };
 }
+
+export function createNarrator(synthesis, Utterance, onChange, onFailure) {
+  let current;
+  let watchdog;
+  function cancel() {
+    if (!current) return;
+    current = null;
+    clearTimeout(watchdog);
+    synthesis.cancel();
+    onChange();
+  }
+  return {
+    available: Boolean(synthesis && Utterance),
+    get speaking() {
+      return Boolean(current);
+    },
+    cancel,
+    say(text, lang) {
+      cancel();
+      if (!synthesis || !Utterance) return;
+      try {
+        const line = new Utterance(text);
+        line.lang = lang === "ru" ? "ru-RU" : "en-US";
+        const voices = synthesis.getVoices();
+        const voice =
+          voices.find((v) => v.lang === line.lang) ||
+          voices.find((v) => v.lang.toLowerCase().split(/[-_]/)[0] === lang);
+        if (voice) line.voice = voice;
+        current = line;
+        onChange();
+        const done = () => {
+          if (current !== line) return false;
+          current = null;
+          clearTimeout(watchdog);
+          onChange();
+          return true;
+        };
+        line.onend = done;
+        line.onerror = () => {
+          if (done()) onFailure();
+        };
+        watchdog = setTimeout(() => {
+          if (current === line) {
+            cancel();
+            onFailure();
+          }
+        }, 15000);
+        synthesis.speak(line);
+      } catch {
+        cancel();
+        onFailure();
+      }
+    },
+  };
+}
