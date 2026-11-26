@@ -1,6 +1,7 @@
 import {
   limits,
   maxTurnSeconds,
+  lastLetter,
   validTurnLimit,
   startGame,
   buildDictionary,
@@ -429,30 +430,32 @@ function board() {
     exhausted: placeText(
       "В словаре закончились подходящие города.",
       "No matching cities remain in the dictionary.",
-      "В словаре закончились подходящие страны.",
-      "No matching countries remain in the dictionary.",
+      "Все страны названы.",
+      "Every country has been played.",
     ),
     left: t("Соперник вышел из комнаты.", "Your opponent left the room."),
     surrender: t("Один из игроков сдался.", "A player conceded."),
   };
   const heading = done
     ? t("Победа", "Winner") + " · " + esc(player(game.winner))
-    : last
-      ? placeText(
-          "Город на «",
-          "City starting with “",
-          "Страна на «",
-          "Country starting with “",
-        ) +
-        esc(game.next.toUpperCase()) +
-        t("»", "”")
-      : placeText(
-          "Назовите первый город",
-          "Name the first city",
-          "Назовите первую страну",
-          "Name the first country",
-        );
-  const info = done
+    : last && !game.next
+      ? t("Назовите любую оставшуюся страну", "Name any remaining country")
+      : last
+        ? placeText(
+            "Город на «",
+            "City starting with “",
+            "Страна на «",
+            "Country starting with “",
+          ) +
+          esc(game.next.toUpperCase()) +
+          t("»", "”")
+        : placeText(
+            "Назовите первый город",
+            "Name the first city",
+            "Назовите первую страну",
+            "Name the first country",
+          );
+  let info = done
     ? why[game.reason]
     : last
       ? placeText(
@@ -467,6 +470,24 @@ function board() {
           "Подойдёт страна на любую букву.",
           "Start with any country.",
         );
+  if (
+    !done &&
+    last &&
+    game.topic === "countries" &&
+    game.next !== lastLetter(last.name, game.lang)
+  ) {
+    info += game.next
+      ? t(
+          ". Берём первую доступную букву справа: ",
+          ". The first playable letter from the right is ",
+        ) +
+        game.next.toUpperCase() +
+        "."
+      : t(
+          ". Ни одна буква названия не даёт хода.",
+          ". No letter in that name has a country left.",
+        );
+  }
   const disabled = myTurn() ? "" : " disabled";
   const form =
     '<form class="field" id="move"><input id="city" maxlength="150" aria-label="' +
@@ -847,8 +868,8 @@ function rules() {
     placeText(
       "Первый игрок называет любой город. Следующий называет город на последнюю букву предыдущего.",
       "The first player names any city. The next player names a city starting with its last letter.",
-      "Первый игрок называет любую страну. Следующий называет страну на последнюю букву предыдущей.",
-      "The first player names any country. The next player names a country starting with its last letter.",
+      "Первый игрок называет любую страну. Для следующего хода читаем её название справа налево до первой буквы, на которую остались страны. Если такой буквы нет, можно назвать любую оставшуюся страну.",
+      "Start with any country. Read its name from right to left until you find a letter that can start an unused country. If no letter works, play any remaining country.",
     ),
     placeText(
       "Города должны быть в словаре выбранного языка. Повторять город, в том числе под другим названием, нельзя.",
@@ -865,8 +886,8 @@ function rules() {
     placeText(
       "Игрок проигрывает, если сдаётся, исчерпывает время или в словаре не осталось подходящего ответа.",
       "A player loses by conceding, running out of time, or having no matching city left in the dictionary.",
-      "Игрок проигрывает, если сдаётся, исчерпывает время или в словаре не осталось подходящей страны.",
-      "A player loses by conceding, running out of time, or having no matching country left in the dictionary.",
+      "Кто назвал последнюю оставшуюся страну, побеждает. Если игрок сдаётся или его время истекло, побеждает соперник.",
+      "Whoever plays the last remaining country wins. Conceding or running out of time gives the opponent the win.",
     ),
   ];
   dialog(
