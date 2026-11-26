@@ -86,10 +86,10 @@ export function expire(game, now = Date.now()) {
     finish(game, 1 - game.turn, "timeout");
 }
 
-export function choices(game, dictionary) {
+export function choices(game, dictionary, letter = game.next) {
   const used = new Set(game.history.map((city) => city.id));
-  const pool = game.next
-    ? dictionary.byLetter.get(game.next) || []
+  const pool = letter
+    ? dictionary.byLetter.get(letter) || []
     : dictionary.lookup.values();
   return Array.from(pool).filter((city) => !used.has(city.id));
 }
@@ -107,7 +107,19 @@ export function play(game, text, dictionary, now = Date.now()) {
   game.next = lastLetter(city.name, game.lang);
   game.turn = 1 - game.turn;
   game.deadline = game.limit ? now + game.limit * 1000 : null;
-  if (!choices(game, dictionary).length)
-    finish(game, 1 - game.turn, "exhausted");
+  if (choices(game, dictionary).length) return null;
+
+  if (game.topic === "countries") {
+    const initials = new Set(
+      choices(game, dictionary, "").map((entry) => entry.key[0]),
+    );
+    if (initials.size) {
+      // An empty next letter is a free move, just like the opening turn.
+      game.next =
+        [...city.key].reverse().find((letter) => initials.has(letter)) ?? "";
+      return null;
+    }
+  }
+  finish(game, 1 - game.turn, "exhausted");
   return null;
 }

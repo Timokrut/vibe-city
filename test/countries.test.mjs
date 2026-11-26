@@ -37,3 +37,59 @@ test("country aliases share an identity and the bot respects the country chain",
   const ru = buildDictionary(countries, "ru", "countries");
   assert.equal(ru.lookup.get("рф").id, ru.lookup.get("россия").id);
 });
+
+test("Japan falls back from Я to И, then to Н if И is exhausted", () => {
+  const dict = buildDictionary(
+    { JP: countries.JP, IN: countries.IN, NP: countries.NP },
+    "ru",
+    "countries",
+  );
+  for (const indiaUsed of [false, true]) {
+    const game = startGame("ru", 15, 0, "countries");
+    if (indiaUsed) assert.equal(play(game, "Индия", dict, 1000), null);
+    assert.equal(play(game, "Япония", dict, 2000), null);
+    assert.equal(game.winner, null);
+    assert.equal(game.next, indiaUsed ? "н" : "и");
+    assert.equal(game.deadline, 17000);
+    assert.equal(
+      play(game, indiaUsed ? "Индия" : "Непал", dict, 2500),
+      "letter",
+    );
+    assert.deepEqual(
+      choices(game, dict).map((c) => c.id),
+      [indiaUsed ? "NP" : "IN"],
+    );
+  }
+});
+
+test("free move when every letter of the name is exhausted; aliases cannot prolong the game", () => {
+  const dict = buildDictionary(
+    { JP: countries.JP, US: countries.US },
+    "en",
+    "countries",
+  );
+  const game = startGame("en", 0, 0, "countries");
+  assert.equal(play(game, "Japan", dict), null);
+  assert.equal(game.next, "");
+  assert.equal(game.winner, null);
+  assert.equal(play(game, "Japan", dict), "repeat");
+  assert.equal(play(game, "USA", dict), null);
+  assert.equal(game.reason, "exhausted");
+  assert.equal(game.winner, 1);
+});
+
+for (const lang of ["ru", "en"]) {
+  test(`a full ${lang} country chain can use every country before declaring a winner`, () => {
+    const dict = buildDictionary(countries, lang, "countries");
+    const game = startGame(lang, 0, 0, "countries");
+    for (let i = 0; i < Object.keys(countries).length; i++) {
+      assert.equal(game.winner, null);
+      const reply = choices(game, dict)[0];
+      assert.ok(reply);
+      assert.equal(play(game, reply.name, dict), null);
+    }
+    assert.equal(new Set(game.history.map((entry) => entry.id)).size, 195);
+    assert.equal(game.reason, "exhausted");
+    assert.equal(game.winner, game.history.at(-1).player);
+  });
+}
