@@ -16,6 +16,11 @@ import { showRoundMap } from "./round-map.js";
 import { icon } from "./icons.js";
 import { createVoiceInput } from "./speech.js";
 
+import { createTurnChime } from "./turn-audio.js";
+
+const chime = createTurnChime(window.AudioContext || window.webkitAudioContext);
+let chimeEnabled = localStorage.getItem("atlas-turn-chime") !== "off";
+
 const voice = createVoiceInput(
   window.SpeechRecognition || window.webkitSpeechRecognition,
   {
@@ -261,6 +266,12 @@ function hero() {
     "</div></div></section>"
   );
 }
+function soundControls() {
+  return `<div class="sound-controls"><label><input type="checkbox" data-sound="chime" ${chimeEnabled ? "checked" : ""}> ${t("Звук смены хода", "Turn sound")}</label></div>`;
+}
+function turnSound() {
+  if (chimeEnabled && game.winner === null && !document.hidden) chime.play();
+}
 function lobby() {
   const join = mode === "online" && networkTab === "join";
   const topics = ["cities", "countries"]
@@ -364,6 +375,7 @@ function lobby() {
     network +
     profilePanel +
     (join ? "" : timer) +
+    soundControls() +
     '<p class="notice" role="status" id="notice"></p><div class="launch"><button class="primary" id="start">' +
     (join
       ? t("Войти в комнату", "Join room")
@@ -558,6 +570,7 @@ function board() {
           : t("Ожидаем ход соперника…", "Waiting for your opponent…")) +
         "</p>"
       : "") +
+    (done ? "" : soundControls()) +
     '</section><div class="game-actions"><span class="sub">' +
     (room ? t("Комната ", "Room ") + esc(room.code) + " · " : "") +
     (game.lang === "ru" ? "Русский" : "English") +
@@ -636,6 +649,8 @@ async function api(path, body, token) {
   return data;
 }
 function sync(data) {
+  const advanced =
+    game && data.game && data.game.history.length > game.history.length;
   const changed =
     (data.profiles && data.profiles.length !== roomProfiles.length) ||
     !room ||
@@ -655,6 +670,7 @@ function sync(data) {
   mode = "online";
   sessionStorage.setItem(roomKey, JSON.stringify(room));
   if (changed || !$("#exit")) draw();
+  if (advanced) turnSound();
 }
 async function poll() {
   if (!room || polling || busy || game?.winner != null) return;
@@ -741,8 +757,9 @@ function scheduleBot() {
     const pool = choices(game, dictionary);
     // Prefer widely known places, keeping some variety between games.
     const city = pool[Math.floor(Math.random() * Math.min(pool.length, 30))];
-    if (city) play(game, city.name, dictionary);
-    else finish(game, 0, "exhausted");
+    if (city) {
+      if (!play(game, city.name, dictionary)) turnSound();
+    } else finish(game, 0, "exhausted");
     draw();
     $("#city")?.focus();
   }, 700);
@@ -783,6 +800,7 @@ async function submit(event) {
     input.focus();
     return;
   }
+  if (!error) turnSound();
   draw();
   scheduleBot();
   if (myTurn()) $("#city")?.focus();
@@ -1034,6 +1052,20 @@ document.addEventListener("click", async (event) => {
       selection.removeAllRanges();
       selection.addRange(range);
     }
+  }
+});
+document.addEventListener(
+  "click",
+  () => {
+    if (chimeEnabled) chime.unlock();
+  },
+  { capture: true },
+);
+main.addEventListener("change", (event) => {
+  if (event.target.dataset.sound === "chime") {
+    chimeEnabled = event.target.checked;
+    localStorage.setItem("atlas-turn-chime", chimeEnabled ? "on" : "off");
+    if (chimeEnabled) chime.unlock();
   }
 });
 main.addEventListener("input", (e) => {

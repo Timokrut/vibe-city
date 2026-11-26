@@ -1273,3 +1273,22 @@ input {
     height: 25px;
   }
 }
+
+.sound-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 20px;
+  margin-top: 12px;
+  color: var(--ink);
+  font-size: 0.9rem;
+}
+.sound-controls label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 0;
+  cursor: pointer;
+}
+.sound-controls input {
+  accent-color: var(--green);
+}
