@@ -19,6 +19,7 @@ import {
   readPreference,
   writePreference,
 } from "./preferences.js";
+import { readSavedGame, storeGame, checkpoint, saveKey } from "./saved-game.js";
 import { createVoiceInput } from "./speech.js";
 
 import { createTurnChime, createNarrator } from "./turn-audio.js";
@@ -71,6 +72,9 @@ const roomKey = "city-atlas-room-v1";
 let { lang, topic, mode, timerChoice, customSeconds, networkTab } =
   readMenuPreferences();
 let typedCode = "";
+let localId, savedAt, pendingRestore;
+let saveFailed = false;
+const botDelay = 700;
 let game = null,
   room = null,
   dictionary = null,
@@ -340,6 +344,12 @@ function narrateTurn(botName = "") {
   }
   speakBot(botName ? botName + ". " + prompt : prompt);
 }
+function resumeCard() {
+  const saved = pendingRestore ?? readSavedGame("localStorage");
+  return saved
+    ? `<div class="resume-game"><div><strong>${t("Сохранённая партия", "Saved game")}</strong><span class="sub">${saved.game.topic === "cities" ? t("Города", "Cities") : t("Страны", "Countries")} · ${modes()[saved.mode][0]} · ${t("Ходов", "Moves")} ${saved.game.history.length}</span></div><button class="plain" id="resume">${t("Продолжить", "Resume")} ${icon("arrow", 17)}</button></div>`
+    : "";
+}
 function lobby() {
   const join = mode === "online" && networkTab === "join";
   const topics = ["cities", "countries"]
@@ -435,6 +445,9 @@ function lobby() {
     <div class="timer-opts">${timerOptions}</div>${customField}</div>`;
   main.innerHTML =
     hero() +
+    '<div id="saved-round">' +
+    resumeCard() +
+    "</div>" +
     `<section class="setup"><div class="setup-heading"><h2 class="section-title">` +
     t("Режим игры", "Game mode") +
     `</h2><div class="topic-switch" role="group" aria-label="${t("Тема игры", "Game topic")}">${topics}</div></div><div class="cards">` +
@@ -678,6 +691,11 @@ function board() {
   showRoundMap($("#round-map"), game, { t, player, lang, view: mapView });
   updateClock();
   if (networkError) notify(networkError);
+  if (saveFailed && !room)
+    $("#notice").textContent = t(
+      "Браузеру не удалось сохранить партию.",
+      "The browser could not save this game.",
+    );
 }
 function draw() {
   if (!game || game.winner !== null) voice.disable();
@@ -770,6 +788,64 @@ async function poll() {
     polling = false;
   }
 }
+async function getDictionary(language, gameTopic) {
+  const key = gameTopic + "/" + language;
+  if (!dictionaries.has(key)) {
+    const response = await fetch(
+      "/data/" + dictionaryFile(language, gameTopic),
+    );
+    if (!response.ok) throw new Error("connection");
+    dictionaries.set(
+      key,
+      buildDictionary(await response.json(), language, gameTopic),
+    );
+  }
+  return dictionaries.get(key);
+}
+function saveLocal() {
+  savedAt = Date.now();
+  saveFailed = !checkpoint({ id: localId, mode, game, updated: savedAt });
+}
+function newLocalId() {
+  return Array.from(crypto.getRandomValues(new Uint32Array(4))).join("-");
+}
+async function restoreLocal(saved, fromMenu = false) {
+  if (!saved || busy) return;
+  busy = true;
+  pendingRestore = saved;
+  header();
+  main.innerHTML =
+    '<p role="status" class="sub">' +
+    t("Восстанавливаем партию…", "Restoring game…") +
+    "</p>";
+  try {
+    const restored = saved.game;
+    expire(restored);
+    if (restored.winner === null)
+      dictionary = await getDictionary(restored.lang, restored.topic);
+    expire(restored);
+    localId = fromMenu && restored.winner === null ? newLocalId() : saved.id;
+    mode = saved.mode;
+    topic = restored.topic;
+    game = restored;
+    savedAt = saved.updated;
+    pendingRestore = null;
+    saveFailed = !checkpoint({ ...saved, id: localId, game });
+    draw();
+    if (voicePreferred && game.winner === null) voice.toggle();
+    scheduleBot();
+    if (myTurn()) $("#city")?.focus();
+  } catch {
+    lobby();
+    $("#notice").textContent = t(
+      "Не удалось загрузить словарь. Нажмите «Продолжить», чтобы повторить.",
+      "Could not load the dictionary. Select Resume to try again.",
+    );
+  } finally {
+    busy = false;
+    voice.sync();
+  }
+}
 async function begin() {
   if (busy) return;
   const limit = timerChoice === "custom" ? Number(customSeconds) : timerChoice;
@@ -795,22 +871,16 @@ async function begin() {
           ? await api("/" + typedCode + "/join", { profile: profiles[0] })
           : await api("", { lang, limit, topic, profile: profiles[0] });
       lang = data.lang;
+      storeGame("sessionStorage", null);
+      pendingRestore = null;
       sync(data);
     } else {
       const chosenLang = lang;
-      const key = topic + "/" + chosenLang;
-      if (!dictionaries.has(key)) {
-        const response = await fetch(
-          "/data/" + dictionaryFile(chosenLang, topic),
-        );
-        if (!response.ok) throw new Error("connection");
-        dictionaries.set(
-          key,
-          buildDictionary(await response.json(), chosenLang, topic),
-        );
-      }
-      dictionary = dictionaries.get(key);
+      dictionary = await getDictionary(chosenLang, topic);
       game = startGame(chosenLang, limit, Date.now(), topic);
+      pendingRestore = null;
+      localId = newLocalId();
+      saveLocal();
       draw();
       if (voicePreferred) voice.toggle();
       $("#city")?.focus();
@@ -826,21 +896,25 @@ async function begin() {
 function scheduleBot() {
   clearTimeout(botTimer);
   if (mode !== "bot" || game?.winner !== null || game.turn !== 1) return;
-  botTimer = setTimeout(() => {
-    const pool = choices(game, dictionary);
-    // Prefer widely known places, keeping some variety between games.
-    const city = pool[Math.floor(Math.random() * Math.min(pool.length, 30))];
-    if (city) {
-      const error = play(game, city.name, dictionary);
-      if (!error) turnSound();
-      narrateTurn(error ? "" : game.history.at(-1).name);
-    } else {
-      finish(game, 0, "exhausted");
-      narrateTurn();
-    }
-    draw();
-    $("#city")?.focus();
-  }, 700);
+  botTimer = setTimeout(
+    () => {
+      const pool = choices(game, dictionary);
+      // Prefer widely known places, keeping some variety between games.
+      const city = pool[Math.floor(Math.random() * Math.min(pool.length, 30))];
+      if (city) {
+        const error = play(game, city.name, dictionary);
+        if (!error) turnSound();
+        narrateTurn(error ? "" : game.history.at(-1).name);
+      } else {
+        finish(game, 0, "exhausted");
+        narrateTurn();
+      }
+      saveLocal();
+      draw();
+      $("#city")?.focus();
+    },
+    Math.max(0, savedAt + botDelay - Date.now()),
+  );
 }
 async function submit(event) {
   event.preventDefault();
@@ -881,6 +955,7 @@ async function submit(event) {
     input.focus();
     return;
   }
+  saveLocal();
   if (!error) turnSound();
   if (game.winner !== null) narrateTurn();
   draw();
@@ -1003,7 +1078,10 @@ function reset() {
   ({ lang, topic, mode, timerChoice, customSeconds, networkTab } =
     readMenuPreferences());
   clearTimeout(botTimer);
-  sessionStorage.removeItem(roomKey);
+  if (room) sessionStorage.removeItem(roomKey);
+  storeGame("sessionStorage", null);
+  localId = pendingRestore = null;
+  saveFailed = false;
   game = null;
   room = null;
   roomProfiles = [];
@@ -1013,6 +1091,16 @@ function reset() {
 }
 async function leave(concede) {
   if (busy) return;
+  if (!saveFailed && !room && !concede && game?.winner === null) {
+    if (
+      !storeGame("localStorage", { id: localId, mode, game, updated: savedAt })
+    ) {
+      saveFailed = true;
+      draw();
+      askLeave(false);
+      return;
+    }
+  }
   if (!room && (!concede || game?.winner !== null)) return reset();
   if (room && game?.winner != null) return reset();
   if (room) {
@@ -1036,6 +1124,7 @@ async function leave(concede) {
   } else {
     clearTimeout(botTimer);
     finish(game, mode === "bot" ? 1 : 1 - game.turn, "surrender");
+    saveLocal();
     narrateTurn();
     draw();
   }
@@ -1049,7 +1138,12 @@ function askLeave(concede) {
   const detail =
     room && !game
       ? t("Комната закроется.", "The room will close.")
-      : t("Текущая партия завершится.", "The current game will end.");
+      : !room && !concede && !saveFailed
+        ? t(
+            "Вы сможете продолжить эту партию из меню. Таймер, если он включён, продолжит отсчёт.",
+            "You can resume this game from the menu. A running timer will keep counting down.",
+          )
+        : t("Текущая партия завершится.", "The current game will end.");
   dialog(
     title,
     '<p class="sub">' +
@@ -1132,7 +1226,27 @@ document.addEventListener("click", async (event) => {
     voice.toggle();
     setVoicePreference(voice.enabled);
   }
-  if (b.id === "start") await begin();
+  if (b.id === "resume")
+    return restoreLocal(pendingRestore ?? readSavedGame("localStorage"), true);
+  if (b.id === "start") {
+    const saved = pendingRestore ?? readSavedGame("localStorage");
+    if (mode !== "online" && saved?.game.winner === null) {
+      dialog(
+        t("Начать новую партию?", "Start a new game?"),
+        '<p class="sub">' +
+          t(
+            "Новая партия заменит сохранённую.",
+            "The new game will replace the saved game.",
+          ) +
+          '</p><div class="modal-actions"><button class="plain" data-close>' +
+          t("Отмена", "Cancel") +
+          '</button><button class="primary" id="confirm">' +
+          t("Начать новую", "Start new game") +
+          "</button></div>",
+        begin,
+      );
+    } else await begin();
+  }
   if (b.id === "exit") askLeave(false);
   if (b.id === "again") reset();
   if (b.id === "concede") askLeave(true);
@@ -1216,6 +1330,7 @@ setInterval(() => {
     if (!room) expire(game);
     if (game.winner !== null) {
       clearTimeout(botTimer);
+      saveLocal();
       narrateTurn();
       draw();
     } else updateClock();
@@ -1225,8 +1340,19 @@ setInterval(poll, 850);
 try {
   room = JSON.parse(sessionStorage.getItem(roomKey));
 } catch {
-  sessionStorage.removeItem(roomKey);
+  room = null;
 }
-if (room) mode = "online";
-draw();
-if (room) poll();
+window.addEventListener("storage", (event) => {
+  const slot = $("#saved-round");
+  if ((event.key === saveKey || event.key === null) && slot && !pendingRestore)
+    slot.innerHTML = resumeCard();
+});
+if (room) {
+  mode = "online";
+  draw();
+  poll();
+} else {
+  const active = readSavedGame("sessionStorage");
+  if (active) restoreLocal(active);
+  else draw();
+}
